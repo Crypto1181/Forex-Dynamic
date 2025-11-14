@@ -37,4 +37,3 @@ jobs:
           name: windows-app
           path: build/windows/forex-signal-app-windows.zip
           retention-days: 30
-
