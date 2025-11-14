@@ -1,0 +1,17 @@
+.git
+.gitignore
+README.md
+*.md
+.vscode
+.idea
+build/
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+test/
+*.iml
+.DS_Store
+

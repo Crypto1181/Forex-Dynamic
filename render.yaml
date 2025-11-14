@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: forex-signal-server
+    runtime: docker
+    plan: free
+    buildCommand: ""
+    startCommand: dart run bin/server.dart
+    envVars:
+      - key: PORT
+        value: 8080
+    healthCheckPath: /
+
