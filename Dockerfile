@@ -1,23 +1,23 @@
 # Use Flutter SDK image
-FROM ghcr.io/cirruslabs/flutter:stable AS build
+FROM ghcr.io/cirruslabs/flutter:stable
 
 # Set working directory
 WORKDIR /app
 
-# Enable Flutter for web/server (disable platform checks)
-ENV FLUTTER_WEB=true
+# Accept Flutter licenses
+RUN flutter doctor
 
 # Copy pubspec files
 COPY pubspec.yaml pubspec.lock* ./
 
 # Get dependencies using Flutter
-RUN flutter pub get --no-example
+RUN flutter pub get
 
 # Copy source code
 COPY . .
 
 # Get dependencies again (in case of changes)
-RUN flutter pub get --no-example
+RUN flutter pub get
 
 # Expose port (Render will provide PORT env variable)
 ENV PORT=8080
