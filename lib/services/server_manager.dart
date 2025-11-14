@@ -67,9 +67,9 @@ class ServerManager {
           .addMiddleware(logRequests())
           .addHandler(_handleRequest(apiKey));
 
-      // Try binding to localhost first (more reliable)
+      // Try binding to any IPv4 (0.0.0.0) for cloud hosting compatibility
       try {
-        _httpServer = await shelf_io.serve(handler, InternetAddress.loopbackIPv4, port);
+        _httpServer = await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
         print('✅ REST API server running on port $port');
         print('   Local: http://localhost:$port');
         print('   Health check: http://localhost:$port/');

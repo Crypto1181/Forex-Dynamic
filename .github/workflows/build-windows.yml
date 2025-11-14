@@ -16,7 +16,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: 'stable'
           channel: 'stable'
       
       - name: Get dependencies
@@ -28,6 +28,7 @@ jobs:
       - name: Create ZIP archive
         run: |
           cd build/windows/x64/runner/Release
+          if (Test-Path ../../../forex-signal-app-windows.zip) { Remove-Item ../../../forex-signal-app-windows.zip }
           Compress-Archive -Path * -DestinationPath ../../../forex-signal-app-windows.zip -Force
       
       - name: Upload artifact
