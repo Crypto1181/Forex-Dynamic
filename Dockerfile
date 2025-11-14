@@ -1,5 +1,5 @@
-# Use Dart SDK image
-FROM dart:stable AS build
+# Use Flutter SDK image
+FROM cirrusci/flutter:stable AS build
 
 # Set working directory
 WORKDIR /app
@@ -7,19 +7,19 @@ WORKDIR /app
 # Copy pubspec files
 COPY pubspec.* ./
 
-# Get dependencies
-RUN dart pub get
+# Get dependencies using Flutter (not dart)
+RUN flutter pub get
 
 # Copy source code
 COPY . .
 
-# Build the server (we'll create a simple server entry point)
-RUN dart pub get
+# Get dependencies again (in case of changes)
+RUN flutter pub get
 
 # Expose port (Render will provide PORT env variable)
 ENV PORT=8080
 EXPOSE 8080
 
-# Run the server
+# Run the server using dart (Flutter includes Dart)
 CMD ["dart", "run", "bin/server.dart"]
 
