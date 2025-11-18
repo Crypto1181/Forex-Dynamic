@@ -1,0 +1,92 @@
+# Uncomment this line to define a global platform for your project
+platform :ios, '13.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+# Use GitHub source instead of CDN to avoid 500 errors
+source 'https://github.com/CocoaPods/Specs.git'
+
+def flutter_root
+  File.join(File.dirname(__FILE__), '..', 'Flutter')
+end
+
+def flutter_shared_podfile
+  File.join(File.dirname(__FILE__), 'Flutter', 'ephemeral', 'Podfile.shared')
+end
+
+def flutter_shared_podfile_exists
+  File.exist?(flutter_shared_podfile)
+end
+
+def flutter_shared_podfile_content
+  return '' unless flutter_shared_podfile_exists
+  File.read(flutter_shared_podfile)
+end
+
+def flutter_install_all_ios_pods(flutter_root)
+  flutter_root_actual = File.expand_path(flutter_root, __FILE__)
+  unless File.exist?(flutter_root_actual)
+    raise "Flutter root not found at #{flutter_root_actual}"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.source_files\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find source_files in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.resources\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find resources in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.vendored_frameworks\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find vendored_frameworks in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.vendored_libraries\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find vendored_libraries in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.public_header_files\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find public_header_files in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.private_header_files\s*=\s*['"](.*)['"]/m)
+  unless Regexp.last_match
+    raise "Could not find private_header_files in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.pod_target_xcconfig\s*=\s*\{([^}]*)\}/m)
+  unless Regexp.last_match
+    raise "Could not find pod_target_xcconfig in Flutter.podspec"
+  end
+
+  File.read(File.join(flutter_root_actual, 'Flutter', 'Flutter.podspec')).match(/^(\s*)s\.user_target_xcconfig\s*=\s*\{([^}]*)\}/m)
+  unless Regexp.last_match
+    raise "Could not find user_target_xcconfig in Flutter.podspec"
+  end
+end
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods(flutter_root)
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
+end
+
