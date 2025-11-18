@@ -1,0 +1,154 @@
+version: 2.1
+
+# CircleCI orbs provide reusable configuration
+orbs:
+  flutter: circleci/flutter@2.0.0
+
+jobs:
+  build-ios:
+    macos:
+      xcode: "15.0.0"  # Use the latest stable Xcode version
+    steps:
+      - checkout
+      
+      # Install Flutter
+      - run:
+          name: Install Flutter
+          command: |
+            git clone https://github.com/flutter/flutter.git -b stable --depth 1 $HOME/flutter
+            export PATH="$PATH:$HOME/flutter/bin"
+            flutter doctor
+            flutter pub get
+            
+      # Setup iOS dependencies
+      - run:
+          name: Install CocoaPods
+          command: |
+            sudo gem install cocoapods
+            pod --version
+            
+      - run:
+          name: Install Pods
+          command: |
+            export PATH="$PATH:$HOME/flutter/bin"
+            cd ios
+            # Flutter will handle pod install if needed
+            flutter pub get
+            if [ -f "Podfile" ]; then
+              pod install
+            else
+              echo "No Podfile found, Flutter will handle dependencies"
+            fi
+            cd ..
+            
+      # Build iOS app
+      - run:
+          name: Build iOS App
+          command: |
+            export PATH="$PATH:$HOME/flutter/bin"
+            flutter build ios --release --no-codesign
+            # Note: For App Store distribution, you'll need code signing
+            # This builds the app without signing (for testing)
+            
+      # Store the build artifacts
+      - store_artifacts:
+          path: build/ios/iphoneos/Runner.app
+          destination: ios-build
+          
+      # Optional: Archive the build
+      - run:
+          name: Create Archive
+          command: |
+            export PATH="$PATH:$HOME/flutter/bin"
+            cd ios
+            xcodebuild archive \
+              -workspace Runner.xcworkspace \
+              -scheme Runner \
+              -archivePath build/Runner.xcarchive \
+              -configuration Release \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+            cd ..
+            
+      - store_artifacts:
+          path: ios/build/Runner.xcarchive
+          destination: ios-archive
+
+  # Alternative: Build with code signing (requires certificates)
+  build-ios-signed:
+    macos:
+      xcode: "15.0.0"
+    steps:
+      - checkout
+      
+      - run:
+          name: Install Flutter
+          command: |
+            git clone https://github.com/flutter/flutter.git -b stable --depth 1 $HOME/flutter
+            export PATH="$PATH:$HOME/flutter/bin"
+            flutter doctor
+            flutter pub get
+            
+      - run:
+          name: Install CocoaPods
+          command: |
+            sudo gem install cocoapods
+            pod --version
+            
+      - run:
+          name: Install Pods
+          command: |
+            cd ios
+            pod install
+            cd ..
+            
+      # Setup code signing (requires environment variables)
+      - run:
+          name: Setup Code Signing
+          command: |
+            # Create keychain
+            security create-keychain -p "" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "" build.keychain
+            security set-keychain-settings -t 3600 -u build.keychain
+            
+            # Import certificates (from environment variables)
+            # You'll need to add these as CircleCI environment variables:
+            # APPLE_CERTIFICATE_BASE64 - Base64 encoded .p12 certificate
+            # APPLE_CERTIFICATE_PASSWORD - Password for the certificate
+            # APPLE_PROVISIONING_PROFILE_BASE64 - Base64 encoded .mobileprovision file
+            
+            echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+            security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            
+            # Import provisioning profile
+            echo "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > profile.mobileprovision
+            mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+            
+            # List available identities
+            security find-identity -v -p codesigning
+            
+      - run:
+          name: Build iOS App (Signed)
+          command: |
+            export PATH="$PATH:$HOME/flutter/bin"
+            flutter build ios --release
+            
+      - store_artifacts:
+          path: build/ios/iphoneos/Runner.app
+          destination: ios-signed-build
+
+workflows:
+  version: 2
+  build-workflow:
+    jobs:
+      # Use build-ios for unsigned builds (testing)
+      # This is the default - good for testing builds
+      - build-ios
+      
+      # For App Store distribution, uncomment below and comment out build-ios above
+      # You'll also need to set up environment variables (see CIRCLECI_SETUP.md)
+      # - build-ios-signed
+
