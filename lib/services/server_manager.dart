@@ -203,11 +203,17 @@ class ServerManager {
 
       // Handle GET requests (for EA to poll signals)
       if (request.method == 'GET') {
-        final path = request.url.path;
-        print('🔍 GET request to path: "$path"'); // Debug logging
+        // Normalize path - ensure it starts with / for consistent matching
+        var path = request.url.path;
+        if (!path.startsWith('/')) {
+          path = '/$path';
+        }
+        // Remove trailing slash for consistent matching
+        path = path.replaceAll(RegExp(r'/$'), '');
+        print('🔍 GET request to path: "${request.url.path}" -> normalized: "$path"'); // Debug logging
         
         // GET /signals - Get all signals with GMT creation time and message IDs
-        if (path == '/signals' || path == '/signals/') {
+        if (path == '/signals') {
           print('✅ Matched /signals endpoint'); // Debug logging
           final signals = signalService.signals;
           if (signals.isEmpty) {
@@ -251,7 +257,7 @@ class ServerManager {
         }
         
         // GET / - Health check
-        if (path == '/' || path.isEmpty) {
+        if (path == '/' || path.isEmpty || path == '') {
           print('✅ Matched / health check endpoint'); // Debug logging
           return Response.ok(
             jsonEncode({
