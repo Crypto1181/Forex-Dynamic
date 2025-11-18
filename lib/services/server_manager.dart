@@ -98,11 +98,6 @@ class ServerManager {
       rethrow;
     }
   }
-  
-  // Get local IP address (simplified - just return localhost for now)
-  String _getLocalIP() {
-    return 'localhost';
-  }
 
   // Start WebSocket server
   Future<void> _startWebSocketServer(int port, String? apiKey) async {
@@ -210,7 +205,7 @@ class ServerManager {
       if (request.method == 'GET') {
         final path = request.url.path;
         
-        // GET /signals - Get latest signal
+        // GET /signals - Get all signals with GMT creation time and message IDs
         if (path == '/signals' || path == '/signals/') {
           final signals = signalService.signals;
           if (signals.isEmpty) {
@@ -218,7 +213,7 @@ class ServerManager {
               jsonEncode({
                 'status': 'success',
                 'message': 'No signals available',
-                'signal': null,
+                'signals': [],
               }),
               headers: {
                 'Content-Type': 'application/json',
@@ -227,13 +222,24 @@ class ServerManager {
             );
           }
           
-          // Return latest signal
-          final latestSignal = signals.first;
+          // Return all signals with GMT creation time and message IDs
+          final signalsList = signals.map((signal) {
+            final signalJson = signal.toJson();
+            // Convert receivedAt to GMT (UTC)
+            final gmtTime = signal.receivedAt.toUtc();
+            // Format as ISO 8601 in GMT
+            signalJson['creationTimeGMT'] = gmtTime.toIso8601String();
+            // Ensure messageId is present (use tradeId)
+            signalJson['messageId'] = signal.tradeId ?? '';
+            return signalJson;
+          }).toList();
+          
           return Response.ok(
             jsonEncode({
               'status': 'success',
-              'message': 'Signal retrieved',
-              'signal': latestSignal.toJson(),
+              'message': 'Signals retrieved',
+              'signals': signalsList,
+              'count': signalsList.length,
             }),
             headers: {
               'Content-Type': 'application/json',
