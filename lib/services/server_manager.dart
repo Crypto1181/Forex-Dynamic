@@ -204,9 +204,11 @@ class ServerManager {
       // Handle GET requests (for EA to poll signals)
       if (request.method == 'GET') {
         final path = request.url.path;
+        print('🔍 GET request to path: "$path"'); // Debug logging
         
         // GET /signals - Get all signals with GMT creation time and message IDs
         if (path == '/signals' || path == '/signals/') {
+          print('✅ Matched /signals endpoint'); // Debug logging
           final signals = signalService.signals;
           if (signals.isEmpty) {
             return Response.ok(
@@ -250,6 +252,7 @@ class ServerManager {
         
         // GET / - Health check
         if (path == '/' || path.isEmpty) {
+          print('✅ Matched / health check endpoint'); // Debug logging
           return Response.ok(
             jsonEncode({
               'status': 'success',
@@ -263,6 +266,7 @@ class ServerManager {
           );
         }
         
+        print('❌ Path not matched: "$path"'); // Debug logging
         return Response.notFound(
           jsonEncode(ApiResponse.error('Endpoint not found', code: 'NOT_FOUND').toJson()),
           headers: {'Content-Type': 'application/json'},
