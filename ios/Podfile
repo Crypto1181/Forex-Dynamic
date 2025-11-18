@@ -29,17 +29,31 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try: flutter pub get"
 end
 
-require File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), flutter_root)
+# Load Flutter podspec helper
+flutter_podspec_path = File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), flutter_root)
+if File.exist?(flutter_podspec_path)
+  require flutter_podspec_path
+else
+  raise "Flutter.podspec not found at #{flutter_podspec_path}. Make sure flutter pub get has been run."
+end
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  # Install all Flutter iOS pods
+  flutter_application_path = File.dirname(File.realpath(__FILE__))
+  if defined?(flutter_install_all_ios_pods)
+    flutter_install_all_ios_pods(flutter_application_path)
+  else
+    raise "flutter_install_all_ios_pods function not available. Flutter.podspec may not be loaded correctly."
+  end
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
+    if defined?(flutter_additional_ios_build_settings)
+      flutter_additional_ios_build_settings(target)
+    end
   end
 end
