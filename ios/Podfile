@@ -13,9 +13,6 @@ project 'Runner', {
   'Release' => :release,
 }
 
-# Specify workspace to avoid CocoaPods error
-workspace 'Runner.xcworkspace'
-
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
   unless File.exist?(generated_xcode_build_settings_path)
@@ -29,54 +26,17 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try: flutter pub get"
 end
 
-# Load Flutter podspec helper
-flutter_podspec_path = File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), flutter_root)
-if File.exist?(flutter_podspec_path)
-  require flutter_podspec_path
-else
-  raise "Flutter.podspec not found at #{flutter_podspec_path}. Make sure flutter pub get has been run."
-end
+require File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), flutter_root)
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  # Install all Flutter iOS pods
-  flutter_application_path = File.dirname(File.realpath(__FILE__))
-  
-  # Try to use Flutter's automatic plugin installation
-  if defined?(flutter_install_all_ios_pods)
-    begin
-      flutter_install_all_ios_pods(flutter_application_path)
-    rescue => e
-      puts "Warning: flutter_install_all_ios_pods failed: #{e.message}"
-      puts "Attempting to load plugins manually..."
-      
-      # Fallback: Load plugins from .flutter-plugins file
-      flutter_plugins_file = File.join(flutter_application_path, '..', '.flutter-plugins')
-      if File.exist?(flutter_plugins_file)
-        File.readlines(flutter_plugins_file).each do |line|
-          next if line.strip.empty? || line.start_with?('#')
-          plugin_name, plugin_path = line.strip.split('=')
-          next unless plugin_name && plugin_path
-          
-          # Check if this plugin has iOS support
-          plugin_ios_path = File.join(plugin_path, 'ios')
-          if File.exist?(plugin_ios_path)
-            pod plugin_name, :path => plugin_path
-          end
-        end
-      end
-    end
-  else
-    raise "flutter_install_all_ios_pods function not available. Flutter.podspec may not be loaded correctly."
-  end
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    if defined?(flutter_additional_ios_build_settings)
-      flutter_additional_ios_build_settings(target)
-    end
+    flutter_additional_ios_build_settings(target)
   end
 end
