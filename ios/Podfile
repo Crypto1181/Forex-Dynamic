@@ -28,19 +28,18 @@ end
 
 # Load Flutter.podspec - Flutter should generate this before pod install runs
 flutter_podspec_path = File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), File.dirname(__FILE__))
-unless File.exist?(flutter_podspec_path)
-  # If Flutter.podspec doesn't exist, Flutter needs to prepare the iOS build first
-  # This should happen automatically during 'flutter build ios', but if pod install
-  # runs separately, you may need to run 'flutter precache' or 'flutter pub get' first
-  raise "#{flutter_podspec_path} must exist. Run 'flutter pub get' or 'flutter build ios' first to generate it."
+if File.exist?(flutter_podspec_path)
+  require flutter_podspec_path
 end
-require flutter_podspec_path
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  # Only install Flutter pods if Flutter.podspec is available
+  if File.exist?(flutter_podspec_path) && defined?(flutter_install_all_ios_pods)
+    flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  end
 end
 
 post_install do |installer|
