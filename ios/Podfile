@@ -26,7 +26,15 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try: flutter pub get"
 end
 
-require File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), File.dirname(__FILE__))
+# Load Flutter.podspec - Flutter should generate this before pod install runs
+flutter_podspec_path = File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), File.dirname(__FILE__))
+unless File.exist?(flutter_podspec_path)
+  # If Flutter.podspec doesn't exist, Flutter needs to prepare the iOS build first
+  # This should happen automatically during 'flutter build ios', but if pod install
+  # runs separately, you may need to run 'flutter precache' or 'flutter pub get' first
+  raise "#{flutter_podspec_path} must exist. Run 'flutter pub get' or 'flutter build ios' first to generate it."
+end
+require flutter_podspec_path
 
 target 'Runner' do
   use_frameworks!
