@@ -26,7 +26,9 @@ def flutter_root
   raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try: flutter pub get"
 end
 
-require File.expand_path(File.join('Flutter', 'ephemeral', 'Flutter.podspec'), flutter_root)
+flutter_application_path = File.expand_path('..', __FILE__)
+load File.join(flutter_application_path, '.flutter-plugins')
+load File.join(flutter_application_path, 'Flutter', 'ephemeral', 'Flutter.podspec')
 
 target 'Runner' do
   use_frameworks!
