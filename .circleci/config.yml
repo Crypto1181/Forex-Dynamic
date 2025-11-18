@@ -8,6 +8,7 @@ jobs:
   build-ios:
     macos:
       xcode: "15.0.0"  # Use the latest stable Xcode version
+    resource_class: macos.x86.medium.gen2  # Free-plan compatible resource
     steps:
       - checkout
       
@@ -79,6 +80,7 @@ jobs:
   build-ios-signed:
     macos:
       xcode: "15.0.0"
+    resource_class: macos.x86.medium.gen2
     steps:
       - checkout
       
