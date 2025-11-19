@@ -1,21 +1,11 @@
-# Use Flutter SDK with specific version (3.35.6 to match local)
-FROM ghcr.io/cirruslabs/flutter:3.35.6
+# Use official Flutter SDK image
+FROM ghcr.io/cirruslabs/flutter:stable
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    git \
-    unzip \
-    xz-utils \
-    zip \
-    libglu1-mesa \
-    && rm -rf /var/lib/apt/lists/*
-
-# Accept Flutter licenses
-RUN flutter doctor -v
+# Accept Flutter licenses and verify installation
+RUN flutter doctor -v && flutter precache
 
 # Copy pubspec files
 COPY pubspec.yaml pubspec.lock* ./
