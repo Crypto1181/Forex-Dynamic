@@ -3,7 +3,8 @@ import 'dart:convert';
 import '../models/trade_signal.dart';
 import '../models/api_response.dart';
 import 'package:uuid/uuid.dart';
-import 'signal_service_storage.dart';
+import 'signal_service_storage_stub.dart'
+    if (dart.library.ui) 'signal_service_storage_flutter.dart';
 
 class SignalService {
   final List<TradeSignal> _signals = [];
