@@ -3,7 +3,7 @@ import 'dart:convert';
 import '../models/trade_signal.dart';
 import '../models/api_response.dart';
 import 'package:uuid/uuid.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'signal_service_storage.dart';
 
 class SignalService {
   final List<TradeSignal> _signals = [];
@@ -17,16 +17,15 @@ class SignalService {
   // Get all signals
   List<TradeSignal> get signals => List.unmodifiable(_signals);
 
-  // Initialize and load saved signals
+  // Initialize and load saved signals (only in Flutter environment)
   Future<void> initialize() async {
     await loadSignals();
   }
 
-  // Load signals from storage
+  // Load signals from storage (only works in Flutter)
   Future<void> loadSignals() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final signalsJson = prefs.getString(_signalsKey);
+      final signalsJson = await getStoredSignals(_signalsKey);
       if (signalsJson != null) {
         final List<dynamic> decoded = json.decode(signalsJson);
         _signals.clear();
@@ -37,21 +36,20 @@ class SignalService {
         _signals.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
       }
     } catch (e) {
-      // If loading fails, start with empty list
+      // If loading fails, start with empty list (server environment or error)
       _signals.clear();
     }
   }
 
-  // Save signals to storage
+  // Save signals to storage (only works in Flutter)
   Future<void> _saveSignals() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final signalsJson = json.encode(
         _signals.map((signal) => signal.toJson()).toList()
       );
-      await prefs.setString(_signalsKey, signalsJson);
+      await saveSignals(_signalsKey, signalsJson);
     } catch (e) {
-      // Silently fail - data will be lost but app won't crash
+      // Silently fail - data will be lost but app won't crash (server environment)
     }
   }
 
