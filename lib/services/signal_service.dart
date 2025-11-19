@@ -126,6 +126,28 @@ class SignalService {
     }
   }
 
+  // Delete a signal by ID
+  Future<bool> deleteSignal(String id) async {
+    final index = _signals.indexWhere((signal) => signal.tradeId == id);
+    if (index != -1) {
+      _signals.removeAt(index);
+      await _saveSignals();
+      return true;
+    }
+    return false;
+  }
+
+  // Update a signal
+  Future<bool> updateSignal(String id, TradeSignal updatedSignal) async {
+    final index = _signals.indexWhere((signal) => signal.tradeId == id);
+    if (index != -1) {
+      _signals[index] = updatedSignal.copyWith(tradeId: id);
+      await _saveSignals();
+      return true;
+    }
+    return false;
+  }
+
   // Clear all signals
   Future<void> clearSignals() async {
     _signals.clear();

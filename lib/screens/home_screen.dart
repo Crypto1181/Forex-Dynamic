@@ -102,6 +102,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  Future<void> _showDeleteConfirmDialog(TradeSignal signal) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Signal'),
+        content: Text('Are you sure you want to delete "${signal.symbol}" ${signal.direction} signal?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && signal.tradeId != null) {
+      final deleted = await widget.signalService.deleteSignal(signal.tradeId!);
+      if (deleted && mounted) {
+        setState(() {
+          _selectedSignalIds.remove(signal.tradeId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Signal deleted successfully'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   DateTime _getAdjustedEntryDateTime(TradeSignal signal) {
     DateTime original;
     try {
@@ -338,7 +375,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 50, 16, 16),
+          padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primary,
             boxShadow: [
@@ -354,15 +391,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               const Text(
                 'Forex Dynamic',
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
               const Spacer(),
               IconButton(
-                icon: const Icon(Icons.settings, color: Colors.white),
+                icon: const Icon(Icons.settings, color: Colors.white, size: 22),
                 onPressed: () => setState(() => _currentIndex = 2),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
@@ -557,7 +596,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.visibility_outlined),
+                  icon: const Icon(Icons.edit, size: 20),
+                  color: Colors.blue,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CreateSignalScreen(
+                          signalService: widget.signalService,
+                          existingSignal: signal,
+                        ),
+                      ),
+                    ).then((_) => setState(() {}));
+                  },
+                  tooltip: 'Edit',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, size: 20),
+                  color: Colors.red,
+                  onPressed: () => _showDeleteConfirmDialog(signal),
+                  tooltip: 'Delete',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.visibility_outlined, size: 20),
                   onPressed: () {
                     Navigator.push(
                       context,
@@ -566,12 +627,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       ),
                     );
                   },
+                  tooltip: 'View Details',
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  width: 28,
-                  height: 28,
+                  width: 24,
+                  height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isSelected
@@ -580,7 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   ),
                   child: Icon(
                     isSelected ? Icons.check : Icons.circle_outlined,
-                    size: 16,
+                    size: 14,
                     color: isSelected ? Colors.white : Colors.grey,
                   ),
                 ),

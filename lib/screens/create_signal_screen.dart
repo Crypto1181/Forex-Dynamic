@@ -6,10 +6,12 @@ import '../services/signal_service.dart';
 
 class CreateSignalScreen extends StatefulWidget {
   final SignalService signalService;
+  final TradeSignal? existingSignal; // For editing
 
   const CreateSignalScreen({
     super.key,
     required this.signalService,
+    this.existingSignal,
   });
 
   @override
@@ -62,6 +64,28 @@ class _CreateSignalScreenState extends State<CreateSignalScreen>
         curve: Curves.easeOutCubic,
       ),
     );
+    
+    // Populate fields if editing
+    if (widget.existingSignal != null) {
+      final signal = widget.existingSignal!;
+      _symbolController.text = signal.symbol;
+      _direction = signal.direction;
+      _entryPriceController.text = signal.entryPrice.toString();
+      _tpController.text = signal.tp.toString();
+      _slController.text = signal.sl.toString();
+      _tpCondition1Controller.text = signal.tpCondition1 ?? '';
+      _tpCondition2Controller.text = signal.tpCondition2 ?? '';
+      _newTPController.text = signal.newTP?.toString() ?? '';
+      _lotController.text = signal.lot.toString();
+      _isDaily = signal.isDaily;
+      _dailyTPController.text = signal.dailyTP?.toString() ?? '';
+      _dailyLotController.text = signal.dailyLot?.toString() ?? '';
+      try {
+        _entryDate = DateFormat('yyyy-MM-dd HH:mm:ss').parse(signal.entryTime);
+      } catch (_) {
+        _entryDate = signal.receivedAt;
+      }
+    }
     
     _animationController.forward();
   }
@@ -155,12 +179,19 @@ class _CreateSignalScreenState extends State<CreateSignalScreen>
         isDraft: true,
       );
 
-      widget.signalService.addDraftSignal(draft);
+      // Update existing signal or create new one
+      if (widget.existingSignal?.tradeId != null) {
+        await widget.signalService.updateSignal(widget.existingSignal!.tradeId!, draft);
+      } else {
+        widget.signalService.addDraftSignal(draft);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Signal saved successfully'),
+            content: Text(widget.existingSignal != null 
+                ? 'Signal updated successfully' 
+                : 'Signal saved successfully'),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -191,9 +222,9 @@ class _CreateSignalScreenState extends State<CreateSignalScreen>
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text(
-          'Create Trade Signal',
-          style: TextStyle(fontWeight: FontWeight.bold),
+        title: Text(
+          widget.existingSignal != null ? 'Edit Trade Signal' : 'Create Trade Signal',
+          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
@@ -229,10 +260,10 @@ class _CreateSignalScreenState extends State<CreateSignalScreen>
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Expanded(
+                          Expanded(
                             child: Text(
-                              'Create Trade Signal',
-                              style: TextStyle(
+                              widget.existingSignal != null ? 'Edit Trade Signal' : 'Create Trade Signal',
+                              style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -582,9 +613,9 @@ class _CreateSignalScreenState extends State<CreateSignalScreen>
                                 valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
                             )
-                          : const Text(
-                              'Save Signal',
-                              style: TextStyle(
+                          : Text(
+                              widget.existingSignal != null ? 'Update Signal' : 'Save Signal',
+                              style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),

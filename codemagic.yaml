@@ -20,4 +20,6 @@ workflows:
       email:
         recipients:
           - oladayoapple@gmail.com
+    # Code signing will be configured in Codemagic UI
+    # For free Apple Developer accounts, use automatic signing with Apple ID
 

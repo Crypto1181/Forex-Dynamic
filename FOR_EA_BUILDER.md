@@ -79,7 +79,7 @@ GET https://forex-dynamic.onrender.com/signals?apiKey=YOUR_API_KEY
 | `tpCondition1` | First TP condition time: "HH:MM" |
 | `tpCondition2` | Second TP condition time: "HH:MM" |
 | `newTP` | New TP value when conditions met |
-| `lot` | Lot size |
+| `lot` | Lot size | 
 | `isDaily` | true/false - Is this a daily trade? |
 | `dailyTP` | Daily TP (if isDaily is true) |
 | `dailyLot` | Daily lot (if isDaily is true) |
@@ -115,7 +115,7 @@ for signal in signals:
     tp = signal['tp']
     sl = signal['sl']
     lot = signal['lot']
-    
+     
     # Process signal...
 ```
 
