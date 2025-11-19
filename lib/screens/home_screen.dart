@@ -4,6 +4,8 @@ import '../models/trade_signal.dart';
 import '../services/signal_service.dart';
 import '../services/server_manager.dart';
 import '../services/account_service.dart';
+import '../services/signal_client.dart';
+import '../services/settings_service.dart';
 import 'signal_detail_screen.dart';
 import 'create_signal_screen.dart';
 import 'accounts_screen.dart';
@@ -25,9 +27,119 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   int _currentIndex = 0;
   final Set<String> _selectedAccountIds = {};
+  final Set<String> _selectedSignalIds = {};
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String? _directionFilter; // BUY, SELL, null = all
+  bool? _dailyFilter; // true, false, null = all
+  DateTime? _selectedTradeDate;
+  bool _isSendingSignals = false;
+  late AnimationController _fabAnimationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _fabAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _fabAnimationController.forward();
+    _searchController.addListener(() {
+      setState(() {
+        _searchQuery = _searchController.text.trim();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _fabAnimationController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<TradeSignal> _getFilteredSignals() {
+    final drafts = widget.signalService.signals.where((signal) => signal.isDraft).toList();
+    return drafts.where((signal) {
+      final matchesSearch = _searchQuery.isEmpty ||
+          signal.symbol.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          signal.direction.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          signal.entryTime.toLowerCase().contains(_searchQuery.toLowerCase());
+      final matchesDirection =
+          _directionFilter == null ? true : signal.direction == _directionFilter;
+      final matchesDaily = _dailyFilter == null ? true : signal.isDaily == _dailyFilter;
+      return matchesSearch && matchesDirection && matchesDaily;
+    }).toList();
+  }
+
+  void _toggleSignalSelection(TradeSignal signal) {
+    final id = signal.tradeId;
+    if (id == null) return;
+    setState(() {
+      if (_selectedSignalIds.contains(id)) {
+        _selectedSignalIds.remove(id);
+      } else {
+        _selectedSignalIds.add(id);
+      }
+    });
+  }
+
+  bool _isSignalSelected(TradeSignal signal) {
+    final id = signal.tradeId;
+    if (id == null) return false;
+    return _selectedSignalIds.contains(id);
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _searchQuery = '';
+      _searchController.clear();
+      _directionFilter = null;
+      _dailyFilter = null;
+    });
+  }
+
+  DateTime _getAdjustedEntryDateTime(TradeSignal signal) {
+    DateTime original;
+    try {
+      original = DateFormat('yyyy-MM-dd HH:mm:ss').parse(signal.entryTime);
+    } catch (_) {
+      try {
+        original = DateTime.parse(signal.entryTime);
+      } catch (_) {
+        original = signal.receivedAt;
+      }
+    }
+    if (_selectedTradeDate == null) {
+      return original;
+    }
+    return DateTime(
+      _selectedTradeDate!.year,
+      _selectedTradeDate!.month,
+      _selectedTradeDate!.day,
+      original.hour,
+      original.minute,
+      original.second,
+    );
+  }
+
+  Future<void> _pickTradeDate() async {
+    final initialDate = _selectedTradeDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedTradeDate = picked;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,19 +176,167 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: _currentIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => _navigateToCreateSignal(),
-              icon: const Icon(Icons.add),
-              label: const Text('Create Signal'),
+          ? ScaleTransition(
+              scale: Tween<double>(begin: 0.0, end: 1.0).animate(
+                CurvedAnimation(
+                  parent: _fabAnimationController,
+                  curve: Curves.elasticOut,
+                ),
+              ),
+              child: FloatingActionButton.extended(
+                onPressed: () => _navigateToCreateSignal(),
+                icon: const Icon(Icons.add),
+                label: const Text('Create Signal'),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+              ),
             )
           : null,
     );
   }
 
+  Future<void> _sendSelectedSignals() async {
+    if (_selectedSignalIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select at least one saved trade to send'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+    if (_selectedAccountIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Select at least one forex account'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSendingSignals = true);
+
+    final settingsService = SettingsService();
+    final remoteServerUrl = await settingsService.getRemoteServerUrl();
+
+    String host;
+    int port;
+    String connectionType;
+    bool useHttps = false;
+
+    if (remoteServerUrl != null && remoteServerUrl.isNotEmpty) {
+      final parsed = settingsService.parseServerUrl(remoteServerUrl);
+      if (parsed == null) {
+        setState(() => _isSendingSignals = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid remote server URL. Check Settings.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      host = parsed['host'] as String;
+      port = parsed['port'] as int;
+      connectionType = parsed['connectionType'] as String;
+      useHttps = remoteServerUrl.startsWith('https://') || remoteServerUrl.startsWith('wss://');
+    } else {
+      if (!widget.serverManager.isRunning) {
+        setState(() => _isSendingSignals = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No remote server configured and local server is not running.\nConfigure a server in Settings or start the local server.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      host = 'localhost';
+      port = widget.serverManager.port;
+      connectionType = widget.serverManager.connectionType;
+    }
+
+    final accounts = widget.accountService.accounts
+        .where((a) => _selectedAccountIds.contains(a.id))
+        .toList();
+
+    final client = SignalClient(
+      host: host,
+      port: port,
+      connectionType: connectionType,
+      apiKey: await settingsService.getApiKey(),
+      useHttps: useHttps,
+    );
+
+    final selectedSignals = widget.signalService.signals
+        .where((signal) => signal.isDraft && signal.tradeId != null && _selectedSignalIds.contains(signal.tradeId))
+        .toList();
+
+    int successCount = 0;
+    final List<String> errors = [];
+
+    for (final signal in selectedSignals) {
+      for (final account in accounts) {
+        try {
+          final adjustedEntry = _getAdjustedEntryDateTime(signal);
+          final payload = signal.copyWith(
+            accountName: account.name,
+            brand: account.brand,
+            entryTime: DateFormat('yyyy-MM-dd HH:mm:ss').format(adjustedEntry),
+            isDraft: false,
+            receivedAt: DateTime.now(),
+          );
+          final response = await client.sendSignal(payload);
+          if (response.status == 'success') {
+            successCount++;
+          } else {
+            errors.add('${account.name}: ${response.message}');
+          }
+        } catch (e) {
+          errors.add('${account.name}: ${e.toString()}');
+        }
+      }
+    }
+
+    setState(() {
+      _isSendingSignals = false;
+      _selectedSignalIds.clear();
+    });
+
+    if (!mounted) return;
+
+    if (successCount > 0 && errors.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Sent $successCount trade(s) to EA'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else if (successCount > 0 && errors.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Sent $successCount trade(s), ${errors.length} failed'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Failed to send trades: ${errors.join(", ")}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
   Widget _buildSignalsTab() {
     return Column(
       children: [
-        // App Bar
         Container(
           padding: const EdgeInsets.fromLTRB(16, 50, 16, 16),
           decoration: BoxDecoration(
@@ -92,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               const Text(
-                'Trade Signals',
+                'Forex Dynamic',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -102,31 +362,98 @@ class _HomeScreenState extends State<HomeScreen> {
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.settings, color: Colors.white),
-                onPressed: () => setState(() => _currentIndex = 1),
+                onPressed: () => setState(() => _currentIndex = 2),
               ),
             ],
           ),
         ),
-
-        // Signal Cards
+        Container(
+          color: Colors.grey[50],
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildTradeDateSelector(),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _searchController,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  hintText: 'Search saved trades',
+                  prefixIcon: const Icon(Icons.search, size: 18),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: _clearFilters,
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFilterChip(
+                      label: 'All',
+                      selected: _directionFilter == null && _dailyFilter == null,
+                      onSelected: (_) => _clearFilters(),
+                    ),
+                    _buildFilterChip(
+                      label: 'BUY',
+                      selected: _directionFilter == 'BUY',
+                      onSelected: (selected) =>
+                          setState(() => _directionFilter = selected ? 'BUY' : null),
+                    ),
+                    _buildFilterChip(
+                      label: 'SELL',
+                      selected: _directionFilter == 'SELL',
+                      onSelected: (selected) =>
+                          setState(() => _directionFilter = selected ? 'SELL' : null),
+                    ),
+                    _buildFilterChip(
+                      label: 'Daily Yes',
+                      selected: _dailyFilter == true,
+                      onSelected: (selected) =>
+                          setState(() => _dailyFilter = selected ? true : null),
+                    ),
+                    _buildFilterChip(
+                      label: 'Daily No',
+                      selected: _dailyFilter == false,
+                      onSelected: (selected) =>
+                          setState(() => _dailyFilter = selected ? false : null),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
         Expanded(
           child: StreamBuilder<TradeSignal>(
             stream: widget.signalService.signalStream,
             builder: (context, snapshot) {
-              final signals = widget.signalService.signals;
+              final signals = _getFilteredSignals();
               if (signals.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.trending_up,
-                        size: 64,
+                        Icons.save_alt,
+                        size: 72,
                         color: Colors.grey[400],
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'No signals yet',
+                        'No saved trades yet',
                         style: TextStyle(
                           fontSize: 18,
                           color: Colors.grey[600],
@@ -134,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Create your first trade signal',
+                        'Create a signal to save it here',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[500],
@@ -146,119 +473,147 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               return ListView.builder(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 itemCount: signals.length,
                 itemBuilder: (context, index) {
-                  return _buildSignalCard(signals[index]);
+                  return TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0.0, end: 1.0),
+                    duration: Duration(milliseconds: 300 + (index * 50)),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, child) {
+                      return Transform.translate(
+                        offset: Offset(0, 20 * (1 - value)),
+                        child: Opacity(
+                          opacity: value,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: _buildSignalCard(signals[index]),
+                  );
                 },
               );
             },
           ),
         ),
-
-        // Account Selection & Send Button
-        if (widget.signalService.signals.isNotEmpty) _buildBottomActionBar(),
+        if (widget.signalService.signals.where((s) => s.isDraft).isNotEmpty)
+          _buildBottomActionBar(),
       ],
     );
   }
 
   Widget _buildSignalCard(TradeSignal signal) {
     final isBuy = signal.direction == 'BUY';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isBuy ? Colors.green.withOpacity(0.3) : Colors.red.withOpacity(0.3),
-          width: 2,
-        ),
-      ),
-      child: InkWell(
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => SignalDetailScreen(signal: signal),
+    final isSelected = _isSignalSelected(signal);
+    return GestureDetector(
+      onTap: () => _toggleSignalSelection(signal),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? Theme.of(context).colorScheme.primary
+                : (isBuy ? Colors.green.shade100 : Colors.red.shade100),
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 60,
-                height: 60,
-                decoration: BoxDecoration(
-                  color: isBuy ? Colors.green : Colors.red,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Center(
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isBuy ? Colors.green.shade100 : Colors.red.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Text(
                     signal.direction,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: isBuy ? Colors.green.shade800 : Colors.red.shade800,
                       fontWeight: FontWeight.bold,
-                      fontSize: 16,
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      signal.symbol,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${signal.direction} • Lot: ${signal.lot}',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    Text(
-                      'TP: ${signal.tp} pips • SL: ${signal.sl} pips',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 12),
+                Text(
+                  signal.symbol,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    signal.accountName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.visibility_outlined),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SignalDetailScreen(signal: signal),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey.shade200,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    DateFormat('MMM dd, HH:mm').format(signal.receivedAt),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[500],
-                    ),
+                  child: Icon(
+                    isSelected ? Icons.check : Icons.circle_outlined,
+                    size: 16,
+                    color: isSelected ? Colors.white : Colors.grey,
                   ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildInfoChip(
+                  'Entry',
+                  DateFormat('yyyy.MM.dd HH:mm').format(_getAdjustedEntryDateTime(signal)),
+                ),
+                const SizedBox(width: 8),
+                _buildInfoChip('Lot', signal.lot.toString()),
+                const SizedBox(width: 8),
+                _buildInfoChip('Daily', signal.isDaily ? 'Yes' : 'No'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _buildMetric('TP', '${signal.tp}', Colors.green),
+                _buildMetric('SL', '${signal.sl}', Colors.red),
+                if (signal.newTP != null) _buildMetric('New TP', '${signal.newTP}', Colors.blue),
+                if (signal.tpCondition1 != null)
+                  _buildMetric('TP Time 1', signal.tpCondition1!, Colors.purple),
+                if (signal.tpCondition2 != null)
+                  _buildMetric('TP Time 2', signal.tpCondition2!, Colors.purple),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -280,7 +635,28 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Account Selection Button
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _selectedSignalIds.isEmpty
+                      ? 'No trades selected'
+                      : '${_selectedSignalIds.length} trade(s) selected',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (_selectedSignalIds.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    setState(() => _selectedSignalIds.clear());
+                  },
+                  child: const Text('Clear'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -297,16 +673,28 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          // Send Button
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton.icon(
-              onPressed: _selectedAccountIds.isEmpty ? null : () => _navigateToCreateSignal(),
-              icon: const Icon(Icons.send),
-              label: const Text(
-                'Send Now',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              onPressed: (_selectedAccountIds.isEmpty ||
+                      _selectedSignalIds.isEmpty ||
+                      _isSendingSignals)
+                  ? null
+                  : _sendSelectedSignals,
+              icon: _isSendingSignals
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.send),
+              label: Text(
+                _isSendingSignals ? 'Sending...' : 'Send Selected',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
@@ -576,11 +964,145 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => CreateSignalScreen(
-          accountService: widget.accountService,
           signalService: widget.signalService,
-          serverManager: widget.serverManager,
-          selectedAccountIds: _selectedAccountIds.toList(),
         ),
+      ),
+    );
+  }
+
+  Widget _buildInfoChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetric(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: RichText(
+        text: TextSpan(
+          style: TextStyle(color: color.withOpacity(0.9), fontSize: 12),
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTradeDateSelector() {
+    final hasCustomDate = _selectedTradeDate != null;
+    final displayText = hasCustomDate
+        ? DateFormat('yyyy / MM / dd').format(_selectedTradeDate!)
+        : 'Use saved entry dates';
+
+    return Row(
+      children: [
+        IconButton(
+          onPressed: _pickTradeDate,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white,
+            padding: const EdgeInsets.all(10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: Colors.grey.shade300),
+            ),
+          ),
+          icon: Icon(Icons.event, color: Theme.of(context).colorScheme.primary),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: GestureDetector(
+            onTap: _pickTradeDate,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    hasCustomDate ? displayText : 'Use saved entry dates',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: hasCustomDate
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey[700],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.arrow_drop_down, color: Colors.grey[600], size: 18),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (hasCustomDate)
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: IconButton(
+              onPressed: () => setState(() => _selectedTradeDate = null),
+              style: IconButton.styleFrom(
+                padding: const EdgeInsets.all(10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+              ),
+              icon: const Icon(Icons.close, size: 18),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: ChoiceChip(
+        label: Text(label, style: const TextStyle(fontSize: 12)),
+        selected: selected,
+        onSelected: onSelected,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }

@@ -9,7 +9,8 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with SingleTickerProviderStateMixin {
   final _settingsService = SettingsService();
   final _serverUrlController = TextEditingController();
   final _apiKeyController = TextEditingController();
@@ -17,15 +18,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLoading = true;
   bool _isTesting = false;
   String? _testResult;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
+    
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     _serverUrlController.dispose();
     _apiKeyController.dispose();
     super.dispose();
@@ -43,6 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _connectionType = connectionType;
 
     setState(() => _isLoading = false);
+    _animationController.forward();
   }
 
   Future<void> _saveSettings() async {
@@ -50,21 +78,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter server URL'),
+        SnackBar(
+          content: const Text('Please enter server URL'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       return;
     }
 
     // Fix common URL issues
-    // Remove leading colon if present
     if (url.startsWith(':')) {
       url = url.substring(1).trim();
     }
     
-    // Add https:// if missing (for ngrok URLs)
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       if (url.contains('ngrok')) {
         url = 'https://$url';
@@ -73,13 +101,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
-    // Validate URL
     final parsed = _settingsService.parseServerUrl(url);
     if (parsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid server URL format. Please include https://'),
+        SnackBar(
+          content: const Text('Invalid server URL format. Please include https://'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
       return;
@@ -95,9 +124,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Settings saved successfully'),
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 8),
+              Text('Settings saved successfully'),
+            ],
+          ),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -107,7 +144,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = _serverUrlController.text.trim();
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter server URL first')),
+        SnackBar(
+          content: const Text('Please enter server URL first'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
@@ -127,18 +169,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       }
 
-      // Test connection with GET request to root endpoint
       String testUrl = url.trim();
       
-      // Fix common issues
-      // Remove leading colon if present (from copy-paste errors)
       if (testUrl.startsWith(':')) {
         testUrl = testUrl.substring(1);
       }
       
-      // Add https:// if missing
       if (!testUrl.startsWith('http://') && !testUrl.startsWith('https://')) {
-        // For ngrok URLs, use https
         if (testUrl.contains('ngrok')) {
           testUrl = 'https://$testUrl';
         } else {
@@ -146,10 +183,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
       
-      // Remove trailing slash
       testUrl = testUrl.replaceAll(RegExp(r'/$'), '');
       
-      // Validate URL format
       try {
         final uri = Uri.parse(testUrl);
         if (uri.host.isEmpty) {
@@ -169,7 +204,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       final uri = Uri.parse(testUrl);
       
-      // Add headers for ngrok free tier (may require browser warning bypass)
       final headers = {
         'User-Agent': 'Flutter-App/1.0',
         'Accept': 'application/json',
@@ -206,178 +240,420 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+      return Scaffold(
+        backgroundColor: Colors.grey[50],
+        appBar: AppBar(
+          title: const Text('Settings'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Theme.of(context).colorScheme.primary,
         foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Remote Server Configuration',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+      body: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Header Card
+              _buildAnimatedCard(
+                delay: 0.0,
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Theme.of(context).colorScheme.primary,
+                        Theme.of(context).colorScheme.primary.withOpacity(0.8),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Configure your laptop server URL. Signals will be sent to this server.',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _serverUrlController,
-                    decoration: const InputDecoration(
-                      labelText: 'Server URL',
-                      hintText: 'https://abc123.ngrok.io:8080',
-                      border: OutlineInputBorder(),
-                      helperText: 'Enter full URL including https:// (e.g., https://nonstabile-renee-snippily.ngrok-free.dev:8080)',
-                      prefixText: 'https://',
-                    ),
-                    keyboardType: TextInputType.url,
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _connectionType,
-                    decoration: const InputDecoration(
-                      labelText: 'Connection Type',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 'REST', child: Text('REST API')),
-                      DropdownMenuItem(value: 'WebSocket', child: Text('WebSocket')),
-                      DropdownMenuItem(value: 'TCP', child: Text('TCP Socket')),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                        blurRadius: 15,
+                        offset: const Offset(0, 8),
+                      ),
                     ],
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => _connectionType = value);
-                      }
-                    },
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _apiKeyController,
-                    decoration: const InputDecoration(
-                      labelText: 'API Key (Optional)',
-                      hintText: 'Leave empty if no authentication',
-                      border: OutlineInputBorder(),
-                    ),
-                    obscureText: true,
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _isTesting ? null : _testConnection,
-                          child: _isTesting
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Text('Test Connection'),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.cloud_upload,
+                          color: Colors.white,
+                          size: 28,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: _saveSettings,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.primary,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: const Text('Save'),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Remote Server',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Configure server connection',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                  if (_testResult != null) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _testResult!.contains('successful')
-                            ? Colors.green.shade50
-                            : Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Server URL
+              _buildAnimatedCard(
+                delay: 0.1,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.link,
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Server URL',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _serverUrlController,
+                      decoration: InputDecoration(
+                        hintText: 'https://forex-dynamic.onrender.com',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(Icons.language),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
                       ),
-                      child: Text(
-                        _testResult!,
-                        style: TextStyle(
+                      keyboardType: TextInputType.url,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Connection Type
+              _buildAnimatedCard(
+                delay: 0.15,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.settings_ethernet,
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Connection Type',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: _connectionType,
+                      decoration: InputDecoration(
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(Icons.api),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'REST',
+                          child: Row(
+                            children: [
+                              Icon(Icons.http, size: 20),
+                              SizedBox(width: 8),
+                              Text('REST API'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'WebSocket',
+                          child: Row(
+                            children: [
+                              Icon(Icons.sync, size: 20),
+                              SizedBox(width: 8),
+                              Text('WebSocket'),
+                            ],
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'TCP',
+                          child: Row(
+                            children: [
+                              Icon(Icons.cable, size: 20),
+                              SizedBox(width: 8),
+                              Text('TCP Socket'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _connectionType = value);
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // API Key
+              _buildAnimatedCard(
+                delay: 0.2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.vpn_key,
+                          color: Theme.of(context).colorScheme.primary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'API Key (Optional)',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _apiKeyController,
+                      decoration: InputDecoration(
+                        hintText: 'Leave empty if no authentication',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        prefixIcon: const Icon(Icons.lock),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 16,
+                        ),
+                      ),
+                      obscureText: true,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Test Connection Result
+              if (_testResult != null)
+                _buildAnimatedCard(
+                  delay: 0.25,
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _testResult!.contains('successful')
+                          ? Colors.green.shade50
+                          : Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _testResult!.contains('successful')
+                            ? Colors.green.shade200
+                            : Colors.red.shade200,
+                        width: 2,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _testResult!.contains('successful')
+                              ? Icons.check_circle
+                              : Icons.error,
                           color: _testResult!.contains('successful')
-                              ? Colors.green.shade900
-                              : Colors.red.shade900,
+                              ? Colors.green.shade700
+                              : Colors.red.shade700,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _testResult!,
+                            style: TextStyle(
+                              color: _testResult!.contains('successful')
+                                  ? Colors.green.shade900
+                                  : Colors.red.shade900,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (_testResult != null) const SizedBox(height: 16),
+
+              // Action Buttons
+              _buildAnimatedCard(
+                delay: 0.3,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: OutlinedButton.icon(
+                        onPressed: _isTesting ? null : _testConnection,
+                        icon: _isTesting
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.wifi_find),
+                        label: Text(_isTesting ? 'Testing...' : 'Test Connection'),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 2,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton.icon(
+                        onPressed: _saveSettings,
+                        icon: const Icon(Icons.save),
+                        label: const Text(
+                          'Save Settings',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 2,
                         ),
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 16),
+            ],
           ),
-          const SizedBox(height: 24),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'How to Get Server URL',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Option 1: Using ngrok (for remote access)',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('1. Install ngrok: https://ngrok.com'),
-                  const Text('2. On laptop, run: ngrok http 8080'),
-                  const Text('3. Copy the URL (e.g., https://abc123.ngrok.io)'),
-                  const Text('4. Add port: https://abc123.ngrok.io:8080'),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Option 2: Local IP (same WiFi)',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('1. Find laptop IP: ipconfig (Windows) or ifconfig (Mac/Linux)'),
-                  const Text('2. Use: http://192.168.1.100:8080 (your IP)'),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Note:',
-                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange),
-                  ),
-                  const Text(
-                    'Share the same URL with EA builders so they can connect their EAs.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                ],
-              ),
-            ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedCard({
+    required Widget child,
+    double delay = 0.0,
+  }) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 400 + (delay * 200).toInt()),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, 20 * (1 - value)),
+          child: Opacity(
+            opacity: value,
+            child: child,
           ),
-        ],
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: child,
       ),
     );
   }
 }
-

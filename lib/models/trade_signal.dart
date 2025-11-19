@@ -2,6 +2,7 @@ class TradeSignal {
   final String symbol;
   final String direction; // "BUY" or "SELL"
   final String entryTime; // "YYYY-MM-DD HH:MM:SS"
+  final double entryPrice; // Entry price (0 if not specified)
   final double tp; // Take Profit in pips
   final double sl; // Stop Loss in pips
   final String? tpCondition1; // Optional time condition "HH:MM"
@@ -15,11 +16,13 @@ class TradeSignal {
   final String brand; // Trade brand identifier
   final String? tradeId; // Unique ID for the trade
   final DateTime receivedAt; // When the signal was received
+  final bool isDraft; // Indicates if this is a saved draft (not yet sent)
 
   TradeSignal({
     required this.symbol,
     required this.direction,
     required this.entryTime,
+    this.entryPrice = 0.0,
     required this.tp,
     required this.sl,
     this.tpCondition1,
@@ -33,6 +36,7 @@ class TradeSignal {
     required this.brand,
     this.tradeId,
     DateTime? receivedAt,
+    this.isDraft = false,
   }) : receivedAt = receivedAt ?? DateTime.now();
 
   factory TradeSignal.fromJson(Map<String, dynamic> json) {
@@ -40,6 +44,7 @@ class TradeSignal {
       symbol: json['symbol'] as String,
       direction: json['direction'] as String,
       entryTime: json['entryTime'] as String,
+      entryPrice: json['entryPrice'] != null ? (json['entryPrice'] as num).toDouble() : 0.0,
       tp: (json['tp'] as num).toDouble(),
       sl: (json['sl'] as num).toDouble(),
       tpCondition1: json['tpCondition1'] as String?,
@@ -49,8 +54,13 @@ class TradeSignal {
       isDaily: json['isDaily'] as bool? ?? false,
       dailyTP: json['dailyTP'] != null ? (json['dailyTP'] as num).toDouble() : null,
       dailyLot: json['dailyLot'] != null ? (json['dailyLot'] as num).toDouble() : null,
-      accountName: json['accountName'] as String,
-      brand: json['brand'] as String,
+      accountName: json['accountName'] as String? ?? '',
+      brand: json['brand'] as String? ?? '',
+      tradeId: json['tradeId'] as String?,
+      receivedAt: json['receivedAt'] != null
+          ? DateTime.parse(json['receivedAt'] as String)
+          : DateTime.now(),
+      isDraft: json['isDraft'] as bool? ?? false,
     );
   }
 
@@ -59,6 +69,7 @@ class TradeSignal {
       'symbol': symbol,
       'direction': direction,
       'entryTime': entryTime,
+      'entryPrice': entryPrice,
       'tp': tp,
       'sl': sl,
       if (tpCondition1 != null) 'tpCondition1': tpCondition1,
@@ -72,7 +83,50 @@ class TradeSignal {
       'brand': brand,
       if (tradeId != null) 'tradeId': tradeId,
       'receivedAt': receivedAt.toIso8601String(),
+      'isDraft': isDraft,
     };
+  }
+
+  TradeSignal copyWith({
+    String? symbol,
+    String? direction,
+    String? entryTime,
+    double? entryPrice,
+    double? tp,
+    double? sl,
+    String? tpCondition1,
+    String? tpCondition2,
+    double? newTP,
+    double? lot,
+    bool? isDaily,
+    double? dailyTP,
+    double? dailyLot,
+    String? accountName,
+    String? brand,
+    String? tradeId,
+    DateTime? receivedAt,
+    bool? isDraft,
+  }) {
+    return TradeSignal(
+      symbol: symbol ?? this.symbol,
+      direction: direction ?? this.direction,
+      entryTime: entryTime ?? this.entryTime,
+      entryPrice: entryPrice ?? this.entryPrice,
+      tp: tp ?? this.tp,
+      sl: sl ?? this.sl,
+      tpCondition1: tpCondition1 ?? this.tpCondition1,
+      tpCondition2: tpCondition2 ?? this.tpCondition2,
+      newTP: newTP ?? this.newTP,
+      lot: lot ?? this.lot,
+      isDaily: isDaily ?? this.isDaily,
+      dailyTP: dailyTP ?? this.dailyTP,
+      dailyLot: dailyLot ?? this.dailyLot,
+      accountName: accountName ?? this.accountName,
+      brand: brand ?? this.brand,
+      tradeId: tradeId ?? this.tradeId,
+      receivedAt: receivedAt ?? this.receivedAt,
+      isDraft: isDraft ?? this.isDraft,
+    );
   }
 
   // Validation method
@@ -82,8 +136,10 @@ class TradeSignal {
       return 'Direction must be BUY or SELL';
     }
     if (entryTime.isEmpty) return 'Entry time is required';
-    if (accountName.isEmpty) return 'Account name is required';
-    if (brand.isEmpty) return 'Brand is required';
+    if (!isDraft) {
+      if (accountName.isEmpty) return 'Account name is required';
+      if (brand.isEmpty) return 'Brand is required';
+    }
     return null;
   }
 }

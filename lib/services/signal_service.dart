@@ -14,6 +14,26 @@ class SignalService {
   // Get all signals
   List<TradeSignal> get signals => List.unmodifiable(_signals);
 
+  TradeSignal? getSignalById(String id) {
+    try {
+      return _signals.firstWhere((signal) => signal.tradeId == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  TradeSignal addDraftSignal(TradeSignal signal) {
+    final tradeId = signal.tradeId ?? _uuid.v4();
+    final draft = signal.copyWith(
+      tradeId: tradeId,
+      isDraft: true,
+      receivedAt: DateTime.now(),
+    );
+    _signals.insert(0, draft);
+    _signalController.add(draft);
+    return draft;
+  }
+
   // Process a trade signal
   ApiResponse processSignal(Map<String, dynamic> jsonData) {
     try {
@@ -32,6 +52,7 @@ class SignalService {
         symbol: signal.symbol,
         direction: signal.direction,
         entryTime: signal.entryTime,
+        entryPrice: signal.entryPrice,
         tp: signal.tp,
         sl: signal.sl,
         tpCondition1: signal.tpCondition1,
@@ -45,6 +66,7 @@ class SignalService {
         brand: signal.brand,
         tradeId: tradeId,
         receivedAt: signal.receivedAt,
+        isDraft: false,
       );
 
       // Add to list
