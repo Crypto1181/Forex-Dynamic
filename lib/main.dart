@@ -35,6 +35,7 @@ class _AppHomeState extends State<AppHome> {
   late final SignalService signalService;
   late final ServerManager serverManager;
   late final AccountService accountService;
+  bool _isInitialized = false;
 
   @override
   void initState() {
@@ -42,6 +43,14 @@ class _AppHomeState extends State<AppHome> {
     signalService = SignalService();
     serverManager = ServerManager(signalService);
     accountService = AccountService();
+    // Load saved signals from storage
+    signalService.initialize().then((_) {
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+    });
   }
 
   @override
@@ -54,6 +63,15 @@ class _AppHomeState extends State<AppHome> {
 
   @override
   Widget build(BuildContext context) {
+    // Show loading indicator while signals are being loaded
+    if (!_isInitialized) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+    
     return HomeScreen(
       signalService: signalService,
       serverManager: serverManager,
