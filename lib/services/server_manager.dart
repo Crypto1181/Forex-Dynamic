@@ -279,6 +279,34 @@ class ServerManager {
         );
       }
 
+      // Handle DELETE requests (clear all signals)
+      if (request.method == 'DELETE') {
+        var path = request.url.path;
+        if (!path.startsWith('/')) {
+          path = '/$path';
+        }
+        path = path.replaceAll(RegExp(r'/$'), '');
+
+        if (path == '/signals') {
+          await signalService.clearSignals();
+          return Response.ok(
+            jsonEncode({
+              'status': 'success',
+              'message': 'All signals cleared',
+            }),
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          );
+        }
+
+        return Response.notFound(
+          jsonEncode(ApiResponse.error('Endpoint not found', code: 'NOT_FOUND').toJson()),
+          headers: {'Content-Type': 'application/json'},
+        );
+      }
+
       // Handle POST requests (for receiving signals)
       if (request.method == 'POST') {
         try {
