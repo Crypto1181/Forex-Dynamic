@@ -382,12 +382,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           final adjustedTP1 = _adjustTPTime(signal.tpCondition1, account.brokerTimeOffset);
           final adjustedTP2 = _adjustTPTime(signal.tpCondition2, account.brokerTimeOffset);
           
+          // Use signal.lot if > 0, otherwise fallback to account's default lot size
+          final lotSize = (signal.lot > 0) ? signal.lot : account.defaultLotSize;
+          
           final payload = signal.copyWith(
             accountName: account.name,
             brand: account.brand,
             entryTime: DateFormat('yyyy-MM-dd HH:mm:ss').format(adjustedEntry),
-            // CRITICAL: Use signal.lot, NOT account.defaultLotSize
-            lot: signal.lot,
+            lot: lotSize,
             tpCondition1: adjustedTP1,
             tpCondition2: adjustedTP2,
             isDraft: false,
