@@ -230,6 +230,12 @@ void OnTick()
    
    // Check TP conditions for pending trades
    CheckTPConditions();
+   
+   // Monitor and update daily trades (ensure TP doesn't exceed main TP)
+   MonitorAndUpdateDailyTrades();
+   
+   // Close daily trades if main trade is closed
+   CloseDailyTradesIfMainClosed();
 }
 
 //+------------------------------------------------------------------+
@@ -1097,6 +1103,122 @@ void CheckScheduledTrades()
 }
 
 //+------------------------------------------------------------------+
+//| Find and select symbol with comprehensive search                |
+//+------------------------------------------------------------------+
+bool FindAndSelectSymbol(string &symbolName)
+{
+   string originalSymbol = symbolName;  // Store original for validation
+   string baseSymbol = StringToUpper(symbolName);  // Normalize for comparison
+   
+   Print("========================================");
+   Print("SEARCHING FOR SYMBOL: '", symbolName, "'");
+   Print("========================================");
+   
+   // Method 1: Try direct selection (original name)
+   Print("Method 1: Trying direct selection: '", symbolName, "'");
+   if(SymbolSelect(symbolName, true))
+   {
+      if(SymbolInfoInteger(symbolName, SYMBOL_SELECT))
+      {
+         // CRITICAL VALIDATION: Ensure the symbol we found actually matches what we're looking for
+         string foundSymbolUpper = StringToUpper(symbolName);
+         if(foundSymbolUpper == baseSymbol)
+         {
+            Print("✓✓✓ Symbol found (direct): '", symbolName, "'");
+            return true;
+         }
+         else
+         {
+            Print("✗ REJECTED: Symbol '", symbolName, "' does not match '", originalSymbol, "'");
+         }
+      }
+   }
+   
+   // Method 2: Try common symbol variations (broker-specific suffixes/prefixes)
+   string variations[];
+   int varCount = 20;  // Increased from 3 to handle more broker variations
+   ArrayResize(variations, varCount);
+   
+   // Common suffixes used by different brokers
+   variations[0] = symbolName;           // Original
+   variations[1] = symbolName + "#";     // Some brokers use #
+   variations[2] = symbolName + "m";     // Some use 'm' suffix
+   variations[3] = symbolName + "c";     // Common suffix
+   variations[4] = symbolName + "i";     // Common suffix
+   variations[5] = symbolName + "pro";    // Pro account suffix
+   variations[6] = symbolName + "micro";  // Micro account
+   variations[7] = symbolName + "mini";   // Mini account
+   variations[8] = symbolName + "e";      // ECN suffix
+   variations[9] = symbolName + "z";      // Common suffix
+   variations[10] = symbolName + "x";     // Common suffix
+   variations[11] = symbolName + ".";     // Dot suffix
+   variations[12] = symbolName + "-";     // Dash suffix
+   variations[13] = symbolName + "_";     // Underscore suffix
+   variations[14] = symbolName + "1";     // Number suffix
+   variations[15] = symbolName + "2";     // Number suffix
+   // Convert to lowercase manually (MQL5 doesn't have StringToLower)
+   string symbolLower = symbolName;
+   for(int l = 0; l < StringLen(symbolLower); l++)
+   {
+      ushort ch = StringGetCharacter(symbolLower, l);
+      if(ch >= 'A' && ch <= 'Z')
+         StringSetCharacter(symbolLower, l, (ushort)(ch + 32));  // Convert to lowercase (explicit cast)
+   }
+   variations[16] = symbolLower;  // Lowercase
+   variations[17] = StringToUpper(symbolName);  // Uppercase (already done, but keep for consistency)
+   variations[18] = "." + symbolName;     // Dot prefix
+   variations[19] = symbolName + "raw";   // Raw spread suffix
+   
+   Print("Method 2: Trying ", varCount, " known symbol variations...");
+   for(int v = 0; v < varCount; v++)
+   {
+      if(variations[v] == "") continue;
+      
+      Print("  Trying variation ", v, ": '", variations[v], "'");
+      if(SymbolSelect(variations[v], true))
+      {
+         if(SymbolInfoInteger(variations[v], SYMBOL_SELECT))
+         {
+            // CRITICAL VALIDATION: Ensure the found symbol actually matches our search
+            // The found symbol must START with our base symbol (case-insensitive)
+            string foundUpper = StringToUpper(variations[v]);
+            if(StringFind(foundUpper, baseSymbol) == 0)  // Must start with our symbol
+            {
+               // Additional check: length should be reasonable (our symbol + small suffix)
+               int baseLen = StringLen(baseSymbol);
+               int foundLen = StringLen(foundUpper);
+               if(foundLen >= baseLen && foundLen <= baseLen + 6)  // Allow up to 6 char suffix
+               {
+                  Print("✓✓✓ Found VALIDATED symbol variation: '", variations[v], "' (original was '", originalSymbol, "')");
+                  symbolName = variations[v];  // Update to working symbol
+                  return true;
+               }
+               else
+               {
+                  Print("  ✗ REJECTED: Length mismatch - found: ", foundLen, ", expected: ", baseLen, " to ", baseLen + 6);
+               }
+            }
+            else
+            {
+               Print("  ✗ REJECTED: '", variations[v], "' does not start with '", originalSymbol, "'");
+            }
+         }
+      }
+   }
+   
+   // REMOVED Method 3: General broker symbol search - TOO DANGEROUS
+   // It was causing wrong symbol matches (e.g., XAUUSD -> EURUSD)
+   // Only use known, safe variations from Method 2
+   
+   Print("========================================");
+   Print("✗✗✗ SYMBOL NOT FOUND: '", originalSymbol, "'");
+   Print("Tried ", varCount + 1, " known variations but none matched");
+   Print("The symbol may not be available on this broker");
+   Print("========================================");
+   return false;
+}
+
+//+------------------------------------------------------------------+
 //| Execute trade                                                    |
 //+------------------------------------------------------------------+
 void ExecuteTrade(SignalData &signal)
@@ -1129,54 +1251,36 @@ void ExecuteTrade(SignalData &signal)
       return;
    }
    
-   // Try to select symbol - attempt multiple times with different methods
-   bool symbolSelected = false;
-   
-   // Method 1: Try direct selection
-   if(SymbolSelect(signal.symbol, true))
-   {
-      symbolSelected = true;
-      Print("Symbol selected: ", signal.symbol);
-   }
-   else
-   {
-      // Method 2: Try adding to Market Watch first
-      Print("Attempting to add ", signal.symbol, " to Market Watch...");
-      if(SymbolSelect(signal.symbol, true))
-      {
-         symbolSelected = true;
-         Print("Symbol added to Market Watch: ", signal.symbol);
-      }
-      else
-      {
-         // Method 3: Try with different symbol name variations (common broker differences)
-         string symbolVariations[];
-         ArrayResize(symbolVariations, 3);
-         symbolVariations[0] = signal.symbol;  // Original
-         symbolVariations[1] = signal.symbol + "#";  // Some brokers use #
-         symbolVariations[2] = signal.symbol + "m";  // Some use 'm' suffix
-         
-         for(int v = 0; v < 3; v++)
-         {
-            if(SymbolSelect(symbolVariations[v], true))
-            {
-               Print("Found symbol variation: ", symbolVariations[v], " (original was ", signal.symbol, ")");
-               signal.symbol = symbolVariations[v];  // Update to working symbol
-               symbolSelected = true;
-               break;
-            }
-         }
-      }
-   }
+   // Try to find and select symbol using comprehensive search
+   string originalSymbol = signal.symbol;
+   bool symbolSelected = FindAndSelectSymbol(signal.symbol);
    
    if(!symbolSelected)
    {
-      string error = "Symbol " + signal.symbol + " not found - Check if symbol exists in your broker";
+      string error = "Symbol '" + originalSymbol + "' not found - Check if symbol exists in your broker";
+      Print("========================================");
       Print("ERROR: ", error, " | Trade ID: ", signal.tradeId);
-      Print("TIP: Add ", signal.symbol, " to Market Watch manually (Right-click Market Watch -> Show All)");
+      Print("Searched for: ", originalSymbol);
+      Print("Tried 20+ symbol variations and scanned all broker symbols");
+      Print("TIP: Check Market Watch -> Right-click -> Show All");
+      Print("TIP: Look for symbols containing '", originalSymbol, "' in the broker's symbol list");
+      Print("========================================");
       if(EnableAlerts) Alert("EA Error: ", error);
       signal.symbolNotFound = true;
       return;
+   }
+   
+   if(originalSymbol != signal.symbol)
+   {
+      Print("========================================");
+      Print("✓ Symbol name updated: '", originalSymbol, "' -> '", signal.symbol, "'");
+      Print("========================================");
+   }
+   else
+   {
+      Print("========================================");
+      Print("✓ Using original symbol: '", signal.symbol, "'");
+      Print("========================================");
    }
    
    // Verify symbol is actually available for trading
@@ -1550,15 +1654,25 @@ void ExecuteDailyTrade(SignalData &signal)
       return;
    }
    
-   // Check if symbol exists and is available
-   if(!SymbolSelect(signal.symbol, true))
+   // Try to find and select symbol using comprehensive search
+   string originalSymbol = signal.symbol;
+   bool symbolSelected = FindAndSelectSymbol(signal.symbol);
+   
+   if(!symbolSelected)
    {
       if(!signal.symbolNotFound)
       {
-         Print("ERROR: Symbol ", signal.symbol, " not found for daily trade - Trade ID: ", signal.tradeId);
+         Print("ERROR: Symbol '", originalSymbol, "' not found for daily trade - Trade ID: ", signal.tradeId);
+         Print("Searched for: ", originalSymbol);
+         Print("Tried 20+ symbol variations and scanned all broker symbols");
          signal.symbolNotFound = true;
       }
       return;
+   }
+   
+   if(originalSymbol != signal.symbol)
+   {
+      Print("Symbol name updated for daily trade: '", originalSymbol, "' -> '", signal.symbol, "'");
    }
    
    // Verify symbol is actually available for trading
@@ -1581,13 +1695,16 @@ void ExecuteDailyTrade(SignalData &signal)
    double dailyTPPrice = CalculateTPPrice(signal.symbol, signal.direction, currentPrice, signal.dailyTP);
    
    // Cap daily TP to not exceed main TP
+   // For BUY: daily TP should be <= main TP (both are above entry price)
+   // For SELL: daily TP should be <= main TP (both are below entry price, so lower price = further from entry)
    if(signal.direction == "BUY")
    {
       if(dailyTPPrice > mainTPPrice) dailyTPPrice = mainTPPrice;
    }
-   else
+   else  // SELL
    {
-      if(dailyTPPrice < mainTPPrice) dailyTPPrice = mainTPPrice;
+      // For SELL: if daily TP is higher than main TP (closer to entry), cap it to main TP
+      if(dailyTPPrice > mainTPPrice) dailyTPPrice = mainTPPrice;
    }
    
    // Use daily lot if specified, otherwise use main lot
@@ -1613,6 +1730,165 @@ void ExecuteDailyTrade(SignalData &signal)
       string error = "Daily trade execution failed: " + IntegerToString(trade.ResultRetcode());
       Print("ERROR: ", error);
       if(EnableAlerts) Alert("EA Error: ", error);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Monitor and update daily trades TP to ensure it doesn't exceed main TP |
+//+------------------------------------------------------------------+
+void MonitorAndUpdateDailyTrades()
+{
+   for(int i = 0; i < ArraySize(signals); i++)
+   {
+      if(!signals[i].dailyActive) continue;
+      if(!signals[i].isExecuted) continue;
+      if(signals[i].mainTicket == 0) continue;
+      
+      // Verify main trade is still open
+      if(!position.SelectByTicket(signals[i].mainTicket))
+      {
+         continue;  // Main trade closed - will be handled by CloseDailyTradesIfMainClosed()
+      }
+      
+      // Get current main TP
+      double mainTPPrice = position.TakeProfit();
+      if(mainTPPrice <= 0) continue;  // No TP set on main trade
+      
+      // Find all daily trades for this signal
+      int totalPositions = PositionsTotal();
+      for(int p = 0; p < totalPositions; p++)
+      {
+         ulong ticket = PositionGetTicket(p);
+         if(ticket == 0) continue;
+         
+         if(position.SelectByTicket(ticket))
+         {
+            // Check if this is a daily trade for this signal
+            if(position.Magic() == MagicNumber &&
+               position.Symbol() == signals[i].symbol &&
+               StringFind(position.Comment(), "Forex Dynamic Daily") >= 0)
+            {
+               // Verify direction matches
+               bool directionMatch = false;
+               if(signals[i].direction == "BUY" && position.PositionType() == POSITION_TYPE_BUY)
+                  directionMatch = true;
+               else if(signals[i].direction == "SELL" && position.PositionType() == POSITION_TYPE_SELL)
+                  directionMatch = true;
+               
+               if(directionMatch)
+               {
+                  double dailyTPPrice = position.TakeProfit();
+                  bool needsUpdate = false;
+                  
+                  // Check if daily TP exceeds main TP
+                  if(signals[i].direction == "BUY")
+                  {
+                     if(dailyTPPrice > mainTPPrice)
+                     {
+                        needsUpdate = true;
+                        dailyTPPrice = mainTPPrice;
+                        Print("⚠️ Daily TP (", dailyTPPrice, ") exceeds main TP (", mainTPPrice, ") - Updating daily trade ticket: ", ticket);
+                     }
+                  }
+                  else  // SELL
+                  {
+                     // For SELL: daily TP should be <= main TP (both are below entry price)
+                     // If daily TP is greater than main TP (closer to entry), it exceeds main TP
+                     if(dailyTPPrice > mainTPPrice || dailyTPPrice == 0)
+                     {
+                        needsUpdate = true;
+                        dailyTPPrice = mainTPPrice;
+                        Print("⚠️ Daily TP (", dailyTPPrice, ") exceeds main TP (", mainTPPrice, ") or is 0 - Updating daily trade ticket: ", ticket);
+                     }
+                  }
+                  
+                  // Update daily TP if needed
+                  if(needsUpdate)
+                  {
+                     bool result = trade.PositionModify(ticket, position.StopLoss(), dailyTPPrice);
+                     if(result)
+                     {
+                        Print("✅ Updated daily trade TP - Ticket: ", ticket, " | Symbol: ", signals[i].symbol, 
+                              " | New TP: ", dailyTPPrice, " | Main TP: ", mainTPPrice);
+                     }
+                     else
+                     {
+                        Print("❌ Failed to update daily trade TP - Ticket: ", ticket, " | Retcode: ", trade.ResultRetcode());
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Close daily trades if main trade is closed                      |
+//+------------------------------------------------------------------+
+void CloseDailyTradesIfMainClosed()
+{
+   for(int i = 0; i < ArraySize(signals); i++)
+   {
+      if(!signals[i].dailyActive) continue;
+      if(!signals[i].isExecuted) continue;
+      if(signals[i].mainTicket == 0) continue;
+      
+      // Check if main trade is still open
+      bool mainTradeOpen = position.SelectByTicket(signals[i].mainTicket);
+      
+      if(!mainTradeOpen)
+      {
+         // Main trade is closed - close all daily trades for this signal
+         Print("⚠️ Main trade closed (Ticket: ", signals[i].mainTicket, ") - Closing all daily trades for signal: ", signals[i].tradeId);
+         
+         int totalPositions = PositionsTotal();
+         int closedCount = 0;
+         
+         for(int p = totalPositions - 1; p >= 0; p--)  // Iterate backwards to avoid index issues
+         {
+            ulong ticket = PositionGetTicket(p);
+            if(ticket == 0) continue;
+            
+            if(position.SelectByTicket(ticket))
+            {
+               // Check if this is a daily trade for this signal
+               if(position.Magic() == MagicNumber &&
+                  position.Symbol() == signals[i].symbol &&
+                  StringFind(position.Comment(), "Forex Dynamic Daily") >= 0)
+               {
+                  // Verify direction matches
+                  bool directionMatch = false;
+                  if(signals[i].direction == "BUY" && position.PositionType() == POSITION_TYPE_BUY)
+                     directionMatch = true;
+                  else if(signals[i].direction == "SELL" && position.PositionType() == POSITION_TYPE_SELL)
+                     directionMatch = true;
+                  
+                  if(directionMatch)
+                  {
+                     // Close the daily trade
+                     bool result = trade.PositionClose(ticket);
+                     if(result)
+                     {
+                        closedCount++;
+                        Print("✅ Closed daily trade - Ticket: ", ticket, " | Symbol: ", signals[i].symbol, 
+                              " | Reason: Main trade closed");
+                     }
+                     else
+                     {
+                        Print("❌ Failed to close daily trade - Ticket: ", ticket, " | Retcode: ", trade.ResultRetcode());
+                     }
+                  }
+               }
+            }
+         }
+         
+         if(closedCount > 0)
+         {
+            Print("✅ Closed ", closedCount, " daily trade(s) because main trade was closed");
+            signals[i].dailyActive = false;  // Disable daily trades for this signal
+         }
+      }
    }
 }
 

@@ -163,6 +163,65 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  /// Adjust TP condition time by broker time offset
+  /// TP conditions are in format "HH:MM" (e.g., "14:30")
+  /// brokerTimeOffset is in format "-02:15" or "+03:00"
+  /// Returns adjusted time in "HH:MM" format, or null if input is null
+  String? _adjustTPTime(String? tpTime, String brokerTimeOffset) {
+    if (tpTime == null || tpTime.isEmpty) return null;
+    
+    try {
+      // Parse TP time (e.g., "14:30")
+      final parts = tpTime.split(':');
+      if (parts.length != 2) return tpTime; // Invalid format, return as-is
+      
+      int hour = int.parse(parts[0]);
+      int minute = int.parse(parts[1]);
+      
+      // Parse broker time offset (e.g., "-02:15" or "+03:00")
+      bool isNegative = brokerTimeOffset.startsWith('-');
+      final offsetStr = brokerTimeOffset.replaceAll(RegExp(r'[+-]'), '');
+      final offsetParts = offsetStr.split(':');
+      if (offsetParts.length != 2) return tpTime; // Invalid format, return as-is
+      
+      int offsetHours = int.parse(offsetParts[0]);
+      int offsetMinutes = int.parse(offsetParts[1]);
+      
+      // Apply offset (subtract if negative, add if positive)
+      // Note: brokerTimeOffset represents how much to DEDUCT from the time
+      // So "-02:15" means subtract 2 hours 15 minutes
+      if (isNegative) {
+        // Subtract offset
+        minute -= offsetMinutes;
+        if (minute < 0) {
+          minute += 60;
+          hour -= 1;
+        }
+        hour -= offsetHours;
+        if (hour < 0) {
+          hour += 24; // Wrap around to previous day
+        }
+      } else {
+        // Add offset
+        minute += offsetMinutes;
+        if (minute >= 60) {
+          minute -= 60;
+          hour += 1;
+        }
+        hour += offsetHours;
+        if (hour >= 24) {
+          hour -= 24; // Wrap around to next day
+        }
+      }
+      
+      // Format back to "HH:MM"
+      return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      // If parsing fails, return original time
+      return tpTime;
+    }
+  }
+
   Future<void> _pickTradeDate() async {
     final initialDate = _selectedTradeDate ?? DateTime.now();
     final picked = await showDatePicker(
@@ -319,10 +378,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       for (final account in accounts) {
         try {
           final adjustedEntry = _getAdjustedEntryDateTime(signal);
+          // Apply broker time offset to TP conditions
+          final adjustedTP1 = _adjustTPTime(signal.tpCondition1, account.brokerTimeOffset);
+          final adjustedTP2 = _adjustTPTime(signal.tpCondition2, account.brokerTimeOffset);
+          
           final payload = signal.copyWith(
             accountName: account.name,
             brand: account.brand,
             entryTime: DateFormat('yyyy-MM-dd HH:mm:ss').format(adjustedEntry),
+            // CRITICAL: Use signal.lot, NOT account.defaultLotSize
+            lot: signal.lot,
+            tpCondition1: adjustedTP1,
+            tpCondition2: adjustedTP2,
             isDraft: false,
             receivedAt: DateTime.now(),
           );
