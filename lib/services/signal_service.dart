@@ -5,6 +5,7 @@ import '../models/api_response.dart';
 import 'package:uuid/uuid.dart';
 import 'signal_service_storage_stub.dart'
     if (dart.library.ui) 'signal_service_storage_flutter.dart';
+import 'supabase_service.dart';
 
 class SignalService {
   final List<TradeSignal> _signals = [];
@@ -20,6 +21,13 @@ class SignalService {
 
   // Initialize and load saved signals (only in Flutter environment)
   Future<void> initialize() async {
+    // Initialize Supabase first
+    try {
+      await SupabaseService.initialize();
+    } catch (e) {
+      print('Warning: Supabase initialization failed: $e');
+      // Continue with local storage fallback
+    }
     await loadSignals();
   }
 
@@ -54,6 +62,18 @@ class SignalService {
     }
   }
 
+  // Save individual signal to Supabase
+  Future<void> _saveSignalToSupabase(TradeSignal signal) async {
+    try {
+      if (SupabaseService.isInitialized) {
+        await SupabaseService.saveSignal(signal);
+      }
+    } catch (e) {
+      print('Error saving signal to Supabase: $e');
+      // Don't throw - allow app to continue
+    }
+  }
+
   TradeSignal? getSignalById(String id) {
     try {
       return _signals.firstWhere((signal) => signal.tradeId == id);
@@ -71,8 +91,20 @@ class SignalService {
     );
     _signals.insert(0, draft);
     _signalController.add(draft);
-    _saveSignals(); // Save to storage
+    // Save to Supabase directly for better performance
+    _saveSignalToSupabase(draft);
+    _saveSignals(); // Also save to storage for compatibility
     return draft;
+  }
+
+  /// Duplicates an existing signal as a new draft (new id, same data).
+  TradeSignal duplicateSignal(TradeSignal signal) {
+    final duplicate = signal.copyWith(
+      tradeId: null,
+      receivedAt: DateTime.now(),
+      isDraft: true,
+    );
+    return addDraftSignal(duplicate);
   }
 
   // Process a trade signal
@@ -116,7 +148,9 @@ class SignalService {
       // Emit to stream
       _signalController.add(signalWithId);
 
-      // Save to storage
+      // Save to Supabase directly
+      _saveSignalToSupabase(signalWithId);
+      // Also save to storage for compatibility
       _saveSignals();
 
       return ApiResponse.success(tradeId: tradeId);
@@ -130,6 +164,14 @@ class SignalService {
     final index = _signals.indexWhere((signal) => signal.tradeId == id);
     if (index != -1) {
       _signals.removeAt(index);
+      // Delete from Supabase
+      try {
+        if (SupabaseService.isInitialized) {
+          await SupabaseService.deleteSignal(id);
+        }
+      } catch (e) {
+        print('Error deleting signal from Supabase: $e');
+      }
       await _saveSignals();
       return true;
     }
@@ -140,7 +182,16 @@ class SignalService {
   Future<bool> updateSignal(String id, TradeSignal updatedSignal) async {
     final index = _signals.indexWhere((signal) => signal.tradeId == id);
     if (index != -1) {
-      _signals[index] = updatedSignal.copyWith(tradeId: id);
+      final signalWithId = updatedSignal.copyWith(tradeId: id);
+      _signals[index] = signalWithId;
+      // Update in Supabase
+      try {
+        if (SupabaseService.isInitialized) {
+          await SupabaseService.updateSignal(signalWithId);
+        }
+      } catch (e) {
+        print('Error updating signal in Supabase: $e');
+      }
       await _saveSignals();
       return true;
     }
@@ -150,6 +201,14 @@ class SignalService {
   // Clear all signals
   Future<void> clearSignals() async {
     _signals.clear();
+    // Clear from Supabase
+    try {
+      if (SupabaseService.isInitialized) {
+        await SupabaseService.clearAllSignals();
+      }
+    } catch (e) {
+      print('Error clearing signals from Supabase: $e');
+    }
     await _saveSignals(); // Clear from storage too
   }
 

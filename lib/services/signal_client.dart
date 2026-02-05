@@ -99,7 +99,7 @@ class SignalClient {
       );
 
       // Send signal
-      socket.add(utf8.encode(jsonEncode(signal.toJson()) + '\n'));
+      socket.add(utf8.encode('${jsonEncode(signal.toJson())}\n'));
 
       // Wait for response with timeout
       return await completer.future.timeout(
@@ -133,5 +133,47 @@ class SignalClient {
         );
     }
   }
-}
 
+  // Delete signal via REST API
+  Future<ApiResponse> deleteSignal(String id) async {
+    // Only REST is supported for delete currently as per ServerManager implementation
+    if (connectionType != 'REST') {
+      return ApiResponse.error(
+        'Delete only supported via REST',
+        code: 'NOT_SUPPORTED',
+      );
+    }
+
+    try {
+      final protocol = useHttps ? 'https' : 'http';
+      final uri = Uri.parse('$protocol://$host:$port/signals/$id');
+      final headers = {
+        'Content-Type': 'application/json',
+        if (apiKey != null) 'Authorization': 'Bearer $apiKey',
+      };
+
+      final response = await http.delete(uri, headers: headers);
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        return ApiResponse.fromJson(json);
+      } else {
+        // Try to parse error response
+        try {
+          final json = jsonDecode(response.body) as Map<String, dynamic>;
+          return ApiResponse.fromJson(json);
+        } catch (_) {
+          return ApiResponse.error(
+            'Failed to delete signal. Status: ${response.statusCode}',
+            code: 'SERVER_ERROR',
+          );
+        }
+      }
+    } catch (e) {
+      return ApiResponse.error(
+        'Failed to delete signal: ${e.toString()}',
+        code: 'NETWORK_ERROR',
+      );
+    }
+  }
+}

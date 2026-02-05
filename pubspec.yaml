@@ -50,6 +50,9 @@ dependencies:
   
   # Storage for settings
   shared_preferences: ^2.2.2
+  
+  # Supabase for cloud storage
+  supabase_flutter: ^2.5.6
 
 dev_dependencies:
   flutter_test:

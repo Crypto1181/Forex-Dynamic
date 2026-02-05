@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/trade_signal.dart';
@@ -57,318 +58,363 @@ class _SignalDetailScreenState extends State<SignalDetailScreen>
   @override
   Widget build(BuildContext context) {
     final isBuy = widget.signal.direction == 'BUY';
+    final gradientColors = isBuy
+        ? [const Color(0xFF10b981), const Color(0xFF3b82f6)]
+        : [const Color(0xFFef4444), const Color(0xFFf97316)];
+    
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: const Text(
-          'Signal Details',
-          style: TextStyle(fontWeight: FontWeight.bold),
+      extendBodyBehindAppBar: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: gradientColors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
         ),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header Card
-                _buildAnimatedCard(
-                  delay: 0.0,
-                  child: Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: isBuy
-                            ? [Colors.green.shade400, Colors.green.shade600]
-                            : [Colors.red.shade400, Colors.red.shade600],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              // Modern Header
+              Container(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: (isBuy ? Colors.green : Colors.red).withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
+                      child: Icon(
+                        isBuy ? Icons.trending_up_rounded : Icons.trending_down_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(16),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.signal.symbol,
+                            style: const TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
                           ),
-                          child: Center(
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             child: Text(
                               widget.signal.direction,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: isBuy ? const Color(0xFF10b981) : const Color(0xFFef4444),
                                 fontWeight: FontWeight.bold,
-                                fontSize: 24,
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.signal.symbol,
-                                style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  'ID: ${widget.signal.tradeId ?? 'N/A'}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Trade Details
-                _buildAnimatedCard(
-                  delay: 0.1,
-                  child: _buildSection(
-                    'Trade Details',
-                    Icons.trending_up,
-                    [
-                      _buildDetailRow('Direction', widget.signal.direction,
-                          isBuy ? Colors.green : Colors.red),
-                      _buildDetailRow('Entry Price',
-                          widget.signal.entryPrice == 0
-                              ? 'Market Price'
-                              : widget.signal.entryPrice.toStringAsFixed(5),
-                          Colors.blue),
-                      _buildDetailRow('Entry Time', widget.signal.entryTime,
-                          Colors.grey),
-                      _buildDetailRow('Lot Size', widget.signal.lot.toString(),
-                          Colors.orange),
-                      _buildDetailRow('Take Profit', '${widget.signal.tp} pips',
-                          Colors.green),
-                      _buildDetailRow('Stop Loss', '${widget.signal.sl} pips',
-                          Colors.red),
-                      if (widget.signal.newTP != null)
-                        _buildDetailRow('New TP',
-                            '${widget.signal.newTP} pips', Colors.blue),
-                    ],
-                  ),
-                ),
-
-                // Conditions
-                if (widget.signal.tpCondition1 != null ||
-                    widget.signal.tpCondition2 != null)
-                  _buildAnimatedCard(
-                    delay: 0.2,
-                    child: _buildSection(
-                      'Time Conditions',
-                      Icons.schedule,
-                      [
-                        if (widget.signal.tpCondition1 != null)
-                          _buildDetailRow('TP Condition 1',
-                              widget.signal.tpCondition1!, Colors.purple),
-                        if (widget.signal.tpCondition2 != null)
-                          _buildDetailRow('TP Condition 2',
-                              widget.signal.tpCondition2!, Colors.purple),
-                      ],
-                    ),
-                  ),
-
-                // Daily Trade Info
-                if (widget.signal.isDaily)
-                  _buildAnimatedCard(
-                    delay: 0.3,
-                    child: _buildSection(
-                      'Daily Trade Information',
-                      Icons.repeat,
-                      [
-                        _buildDetailRow('Is Daily Trade', 'Yes', Colors.teal),
-                        if (widget.signal.dailyTP != null)
-                          _buildDetailRow('Daily TP',
-                              '${widget.signal.dailyTP} pips', Colors.green),
-                        if (widget.signal.dailyLot != null)
-                          _buildDetailRow('Daily Lot',
-                              widget.signal.dailyLot.toString(), Colors.orange),
-                      ],
-                    ),
-                  ),
-
-                // Account Information
-                _buildAnimatedCard(
-                  delay: 0.4,
-                  child: _buildSection(
-                    'Account Information',
-                    Icons.account_balance_wallet,
-                    [
-                      _buildDetailRow('Account Name', widget.signal.accountName,
-                          Colors.blue),
-                      _buildDetailRow('Brand', widget.signal.brand, Colors.indigo),
-                    ],
-                  ),
-                ),
-
-                // Metadata
-                _buildAnimatedCard(
-                  delay: 0.5,
-                  child: _buildSection(
-                    'Metadata',
-                    Icons.info_outline,
-                    [
-                      _buildDetailRow(
-                        'Received At',
-                        DateFormat('yyyy-MM-dd HH:mm:ss')
-                            .format(widget.signal.receivedAt),
-                        Colors.grey,
+                        ],
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Content
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFf8fafc),
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(30),
+                      topRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: SlideTransition(
+                      position: _slideAnimation,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Trade Details Card
+                            _buildModernSectionCard(
+                              icon: Icons.analytics_rounded,
+                              iconColor: Colors.blue,
+                              title: 'Trade Details',
+                              children: [
+                                _buildDetailRow(
+                                  icon: Icons.trending_up_rounded,
+                                  label: 'Direction',
+                                  value: widget.signal.direction,
+                                  valueColor: isBuy ? Colors.green : Colors.red,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.attach_money_rounded,
+                                  label: 'Entry Price',
+                                  value: widget.signal.entryPrice == 0
+                                      ? 'Market Price'
+                                      : widget.signal.entryPrice.toStringAsFixed(5),
+                                  valueColor: Colors.blue,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.access_time_rounded,
+                                  label: 'Entry Time',
+                                  value: widget.signal.entryTime,
+                                  valueColor: Colors.grey,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.inventory_2_rounded,
+                                  label: 'Lot Size',
+                                  value: widget.signal.lot.toString(),
+                                  valueColor: Colors.orange,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.trending_up_rounded,
+                                  label: 'Take Profit',
+                                  value: '${widget.signal.tp} pips',
+                                  valueColor: Colors.green,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.trending_down_rounded,
+                                  label: 'Stop Loss',
+                                  value: '${widget.signal.sl} pips',
+                                  valueColor: Colors.red,
+                                ),
+                                if (widget.signal.newTP != null)
+                                  _buildDetailRow(
+                                    icon: Icons.edit_rounded,
+                                    label: 'New TP',
+                                    value: '${widget.signal.newTP} pips',
+                                    valueColor: Colors.blue,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Time Conditions
+                            if (widget.signal.tpCondition1 != null ||
+                                widget.signal.tpCondition2 != null)
+                              _buildModernSectionCard(
+                                icon: Icons.schedule_rounded,
+                                iconColor: Colors.purple,
+                                title: 'Time Conditions',
+                                children: [
+                                  if (widget.signal.tpCondition1 != null)
+                                    _buildDetailRow(
+                                      icon: Icons.schedule_rounded,
+                                      label: 'TP Condition 1',
+                                      value: widget.signal.tpCondition1!,
+                                      valueColor: Colors.purple,
+                                    ),
+                                  if (widget.signal.tpCondition2 != null)
+                                    _buildDetailRow(
+                                      icon: Icons.schedule_rounded,
+                                      label: 'TP Condition 2',
+                                      value: widget.signal.tpCondition2!,
+                                      valueColor: Colors.purple,
+                                    ),
+                                ],
+                              ),
+                            if (widget.signal.tpCondition1 != null ||
+                                widget.signal.tpCondition2 != null)
+                              const SizedBox(height: 16),
+
+                            // Daily Trade Info
+                            if (widget.signal.isDaily)
+                              _buildModernSectionCard(
+                                icon: Icons.repeat_rounded,
+                                iconColor: Colors.teal,
+                                title: 'Daily Trade Information',
+                                children: [
+                                  _buildDetailRow(
+                                    icon: Icons.repeat_rounded,
+                                    label: 'Is Daily Trade',
+                                    value: 'Yes',
+                                    valueColor: Colors.teal,
+                                  ),
+                                  if (widget.signal.dailyTP != null)
+                                    _buildDetailRow(
+                                      icon: Icons.trending_up_rounded,
+                                      label: 'Daily TP',
+                                      value: '${widget.signal.dailyTP} pips',
+                                      valueColor: Colors.green,
+                                    ),
+                                  if (widget.signal.dailyLot != null)
+                                    _buildDetailRow(
+                                      icon: Icons.inventory_2_rounded,
+                                      label: 'Daily Lot',
+                                      value: widget.signal.dailyLot.toString(),
+                                      valueColor: Colors.orange,
+                                    ),
+                                ],
+                              ),
+                            if (widget.signal.isDaily) const SizedBox(height: 16),
+
+                            // Account Information
+                            _buildModernSectionCard(
+                              icon: Icons.account_balance_wallet_rounded,
+                              iconColor: Colors.indigo,
+                              title: 'Account Information',
+                              children: [
+                                _buildDetailRow(
+                                  icon: Icons.person_rounded,
+                                  label: 'Account Name',
+                                  value: widget.signal.accountName,
+                                  valueColor: Colors.blue,
+                                ),
+                                _buildDetailRow(
+                                  icon: Icons.business_rounded,
+                                  label: 'Brand',
+                                  value: widget.signal.brand,
+                                  valueColor: Colors.indigo,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Metadata
+                            _buildModernSectionCard(
+                              icon: Icons.info_outline_rounded,
+                              iconColor: Colors.grey,
+                              title: 'Metadata',
+                              children: [
+                                _buildDetailRow(
+                                  icon: Icons.access_time_rounded,
+                                  label: 'Received At',
+                                  value: DateFormat('yyyy-MM-dd HH:mm:ss')
+                                      .format(widget.signal.receivedAt),
+                                  valueColor: Colors.grey,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildAnimatedCard({
-    required Widget child,
-    double delay = 0.0,
+  Widget _buildModernSectionCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required List<Widget> children,
   }) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: Duration(milliseconds: 400 + (delay * 200).toInt()),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 20 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-        );
-      },
-      child: child,
-    );
-  }
-
-  Widget _buildSection(String title, IconData icon, List<Widget> children) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 24),
               ),
-              child: Icon(
-                icon,
-                color: Theme.of(context).colorScheme.primary,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0f172a),
+                ),
               ),
             ],
           ),
-          child: Column(
-            children: children,
-          ),
-        ),
-      ],
+          const SizedBox(height: 20),
+          ...children,
+        ],
+      ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value, Color valueColor) {
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color valueColor,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.only(bottom: 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[600],
-                fontSize: 14,
-              ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: valueColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: Icon(icon, size: 18, color: valueColor),
           ),
+          const SizedBox(width: 12),
           Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: valueColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                value,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: valueColor,
-                  fontSize: 15,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[600],
+                    fontSize: 13,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: valueColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: valueColor,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

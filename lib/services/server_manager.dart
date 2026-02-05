@@ -155,14 +155,14 @@ class ServerManager {
               if (line.trim().isEmpty) continue;
               final jsonData = jsonDecode(line.trim());
               final response = signalService.processSignal(jsonData);
-              client.add(utf8.encode(jsonEncode(response.toJson()) + '\n'));
+              client.add(utf8.encode('${jsonEncode(response.toJson())}\n'));
             }
           } catch (e) {
             final errorResponse = ApiResponse.error(
               'Invalid data format: ${e.toString()}',
               code: 'INVALID_FORMAT',
             );
-            client.add(utf8.encode(jsonEncode(errorResponse.toJson()) + '\n'));
+            client.add(utf8.encode('${jsonEncode(errorResponse.toJson())}\n'));
           }
         },
         onError: (error) {
@@ -279,7 +279,7 @@ class ServerManager {
         );
       }
 
-      // Handle DELETE requests (clear all signals)
+      // Handle DELETE requests
       if (request.method == 'DELETE') {
         var path = request.url.path;
         if (!path.startsWith('/')) {
@@ -287,6 +287,34 @@ class ServerManager {
         }
         path = path.replaceAll(RegExp(r'/$'), '');
 
+        // DELETE /signals/<id> - Delete specific signal
+        final idMatch = RegExp(r'^/signals/([^/]+)$').firstMatch(path);
+        if (idMatch != null) {
+          final id = idMatch.group(1);
+          if (id != null) {
+            final deleted = await signalService.deleteSignal(id);
+            if (deleted) {
+              return Response.ok(
+                jsonEncode({
+                  'status': 'success',
+                  'message': 'Signal deleted',
+                  'id': id,
+                }),
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Access-Control-Allow-Origin': '*',
+                },
+              );
+            } else {
+              return Response.notFound(
+                jsonEncode(ApiResponse.error('Signal not found', code: 'NOT_FOUND').toJson()),
+                headers: {'Content-Type': 'application/json'},
+              );
+            }
+          }
+        }
+
+        // DELETE /signals - Clear all signals
         if (path == '/signals') {
           await signalService.clearSignals();
           return Response.ok(
@@ -300,7 +328,7 @@ class ServerManager {
             },
           );
         }
-
+        
         return Response.notFound(
           jsonEncode(ApiResponse.error('Endpoint not found', code: 'NOT_FOUND').toJson()),
           headers: {'Content-Type': 'application/json'},

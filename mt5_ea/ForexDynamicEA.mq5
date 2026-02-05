@@ -53,6 +53,7 @@ struct SignalData
    double dailyLot;          // Daily lot size
    string accountName;        // Account name
    string brand;             // Brand identifier
+   string entryType;         // Entry type ("TIME" or "PRICE")
    datetime receivedAt;      // When signal was received
    datetime firstSeenAt;     // When EA first fetched the signal
    bool isExecuted;          // Has main trade been executed
@@ -60,6 +61,10 @@ struct SignalData
    datetime lastDailyDate;   // Last daily trade date
    bool dailyActive;         // Is daily re-entry active
    bool symbolNotFound;      // Flag to mark if symbol is not available
+   double originalTPPrice;   // Original TP price when trade was opened (for 50% rule)
+   double originalEntryPrice; // Original entry price when trade was opened (for 50% rule)
+   datetime tradeOpenTime;  // When position was actually opened (broker server time)
+   bool tpModified;         // Track if TP has been modified to 50% (prevent re-modification)
 };
 
 SignalData signals[];
@@ -234,8 +239,14 @@ void OnTick()
    // Monitor and update daily trades (ensure TP doesn't exceed main TP)
    MonitorAndUpdateDailyTrades();
    
+   // Monitor all daily trades (even those not linked to signals - for EA restart scenarios)
+   MonitorAllDailyTrades();
+   
    // Close daily trades if main trade is closed
    CloseDailyTradesIfMainClosed();
+   
+   // Check and apply TP modification rules (50% rule at market open)
+   CheckTPModificationRules();
 }
 
 //+------------------------------------------------------------------+
@@ -284,6 +295,12 @@ void PollSignals()
       Print("First 300 chars: ", StringSubstr(jsonResponse, 0, 300));
    }
    ParseSignalsJSON(jsonResponse);
+   
+   // CRITICAL: Sync with existing positions AFTER parsing signals
+   // This ensures that even if we restarted, we link the newly fetched (but potentially old) signals
+   // to the existing open trades.
+   SyncWithExistingPositions();
+   
    Print("========================================");
 }
 
@@ -421,6 +438,8 @@ void ParseSignal(string signalJson)
    signal.dailyLot = StringToDouble(ExtractJSONValue(signalJson, "dailyLot"));
    signal.accountName = ExtractJSONValue(signalJson, "accountName");
    signal.brand = ExtractJSONValue(signalJson, "brand");
+   signal.entryType = ExtractJSONValue(signalJson, "entryType");
+   if(signal.entryType == "") signal.entryType = "TIME"; // Default to TIME if missing
    
    // Also check for channelName field (if brand is empty, use channelName)
    string channelName = ExtractJSONValue(signalJson, "channelName");
@@ -439,6 +458,10 @@ void ParseSignal(string signalJson)
    signal.lastDailyDate = 0;
    signal.dailyActive = false;
    signal.symbolNotFound = false;
+   signal.originalTPPrice = 0;
+   signal.originalEntryPrice = 0;
+   signal.tradeOpenTime = 0;
+   signal.tpModified = false;
    
    // Check if signal matches current account and channel
    Print("Checking signal match: Account='", signal.accountName, "' | Brand='", signal.brand, "' | Symbol='", signal.symbol, "'");
@@ -448,6 +471,14 @@ void ParseSignal(string signalJson)
       Print("Signal rejected - not for this account/channel");
       return;
    }
+   
+   // Check entry type - this EA only handles TIME signals
+   if(signal.entryType == "PRICE")
+   {
+      Print("Signal rejected - entryType is PRICE (this EA only handles TIME/DATE signals)");
+      return;
+   }
+   
    Print("Signal MATCHED - will be processed");
    
    // Check if signal already exists
@@ -470,13 +501,33 @@ void ParseSignal(string signalJson)
       long timeDiff = (long)(signal.entryTime - currentTime);
       
       // Skip signals that are too old (more than 2 hours in the past)
-      // This gives more time for execution while still filtering very old signals
+      // UNLESS they are daily signals (need to be kept for daily re-entries)
+      // OR if we already have a trade for this signal (need to be kept for management)
       if(timeDiff < -7200)  // 2 hours instead of 1 hour
       {
-         Print("Skipping very old signal: ", signal.symbol, " | Entry: ", TimeToString(signal.entryTime, TIME_DATE|TIME_MINUTES), 
-               " | Current: ", TimeToString(currentTime, TIME_DATE|TIME_MINUTES), 
-               " | Diff: ", timeDiff, "s | Trade ID: ", signal.tradeId);
-         return;  // Don't add very old signals
+         bool keepSignal = false;
+         
+         // Keep if it's a daily signal
+         if(signal.isDaily)
+         {
+            Print("Keeping old signal because isDaily=true: ", signal.tradeId);
+            keepSignal = true;
+         }
+         
+         // Keep if we have an open trade for it
+         if(!keepSignal && TradeExistsForSignal(signal))
+         {
+            Print("Keeping old signal because trade exists: ", signal.tradeId);
+            keepSignal = true;
+         }
+         
+         if(!keepSignal)
+         {
+            Print("Skipping very old signal: ", signal.symbol, " | Entry: ", TimeToString(signal.entryTime, TIME_DATE|TIME_MINUTES), 
+                  " | Current: ", TimeToString(currentTime, TIME_DATE|TIME_MINUTES), 
+                  " | Diff: ", timeDiff, "s | Trade ID: ", signal.tradeId);
+            return;  // Don't add very old signals
+         }
       }
       
       // Log signal being added
@@ -749,8 +800,10 @@ void SyncWithExistingPositions()
 {
    // Check all open positions with our magic number
    int totalPositions = PositionsTotal();
-   int syncedCount = 0;
+   int syncedMainCount = 0;
+   int syncedDailyCount = 0;
    
+   // First pass: Find all main trades and try to link them to signals
    for(int i = 0; i < totalPositions; i++)
    {
       ulong ticket = PositionGetTicket(i);
@@ -764,15 +817,157 @@ void SyncWithExistingPositions()
             // Check if this is a main trade (not a daily trade)
             if(StringFind(comment, "Forex Dynamic") >= 0 && StringFind(comment, "Daily") < 0)
             {
-               syncedCount++;
-               Print("Found existing main position: Ticket=", ticket, " Symbol=", position.Symbol(), " Comment=", comment);
+               syncedMainCount++;
+               string symbol = position.Symbol();
+               ENUM_POSITION_TYPE posType = position.PositionType();
+               string direction = (posType == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+               datetime openTime = (datetime)position.Time();
+               
+               Print("Found existing main position: Ticket=", ticket, " Symbol=", symbol, " Direction=", direction, " Comment=", comment);
+               
+               // Try to find matching signal in the array
+               bool foundMatch = false;
+               for(int s = 0; s < ArraySize(signals); s++)
+               {
+                  if(signals[s].symbol == symbol && 
+                     signals[s].direction == direction &&
+                     !signals[s].isExecuted)
+                  {
+                     // Check if entry time is close (within 2 hours)
+                     long timeDiff = (long)(openTime - signals[s].entryTime);
+                     if(timeDiff < 0) timeDiff = -timeDiff;  // Absolute value
+                     if(timeDiff < 7200)  // Within 2 hours
+                     {
+                        // Link this signal to the existing main trade
+                        signals[s].isExecuted = true;
+                        signals[s].mainTicket = ticket;
+                        signals[s].dailyActive = signals[s].isDaily;  // Activate daily if enabled
+                        
+                        // Store original TP and entry price for TP modification rule
+                        signals[s].originalEntryPrice = position.PriceOpen();
+                        double currentTP = position.TakeProfit();
+                        signals[s].tradeOpenTime = (datetime)position.Time();
+                        
+                        // Try to determine if TP was already modified
+                        // We'll use the signal's original TP value if available, otherwise use current TP
+                        if(signals[s].tp > 0)
+                        {
+                           // Calculate what original TP should be based on signal
+                           double point = SymbolInfoDouble(signals[s].symbol, SYMBOL_POINT);
+                           int digits = (int)SymbolInfoInteger(signals[s].symbol, SYMBOL_DIGITS);
+                           double multiplier = (digits == 3 || digits == 5) ? 10 : 1;
+                           
+                           double calculatedOriginalTP = 0;
+                           if(signals[s].direction == "BUY")
+                              calculatedOriginalTP = signals[s].originalEntryPrice + (signals[s].tp * point * multiplier);
+                           else
+                              calculatedOriginalTP = signals[s].originalEntryPrice - (signals[s].tp * point * multiplier);
+                           
+                           signals[s].originalTPPrice = calculatedOriginalTP;
+                           
+                           // Check if current TP is approximately 50% of original (within 5% tolerance)
+                           double originalDistance = MathAbs(calculatedOriginalTP - signals[s].originalEntryPrice);
+                           double currentDistance = MathAbs(currentTP - signals[s].originalEntryPrice);
+                           double expectedDistance = originalDistance * 0.5;
+                           
+                           if(MathAbs(currentDistance - expectedDistance) / expectedDistance < 0.05)  // Within 5% tolerance
+                           {
+                              signals[s].tpModified = true;  // TP appears to be already modified
+                              Print("  Detected: TP appears to be already modified (50% rule applied)");
+                           }
+                           else
+                           {
+                              signals[s].tpModified = false;
+                           }
+                        }
+                        else
+                        {
+                           // No signal TP info, use current TP as original and assume not modified
+                           signals[s].originalTPPrice = currentTP;
+                           signals[s].tpModified = false;
+                        }
+                        
+                        Print("✓ Linked existing main trade to signal: ", signals[s].tradeId, " | Daily active: ", (signals[s].dailyActive ? "YES" : "NO"));
+                        Print("  Stored values - Entry: ", signals[s].originalEntryPrice, " | Original TP: ", signals[s].originalTPPrice, " | Current TP: ", currentTP);
+                        Print("  TP Modified: ", (signals[s].tpModified ? "YES" : "NO"));
+                        foundMatch = true;
+                        break;
+                     }
+                  }
+               }
+               
+               // If no signal match found, we can't fully sync, but at least we know the trade exists
+               if(!foundMatch)
+               {
+                  Print("⚠️ Main trade found but no matching signal in queue - Trade may have been placed before EA restart");
+               }
             }
          }
       }
    }
    
-   if(syncedCount > 0)
-      Print("Synced with ", syncedCount, " existing position(s)");
+   // Second pass: Find all daily trades and verify they're linked to signals
+   for(int i = 0; i < totalPositions; i++)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      
+      if(position.SelectByTicket(ticket))
+      {
+         if(position.Magic() == MagicNumber)
+         {
+            string comment = position.Comment();
+            // Check if this is a daily trade
+            if(StringFind(comment, "Forex Dynamic Daily") >= 0)
+            {
+               syncedDailyCount++;
+               string symbol = position.Symbol();
+               ENUM_POSITION_TYPE posType = position.PositionType();
+               string direction = (posType == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+               
+               Print("Found existing daily trade: Ticket=", ticket, " Symbol=", symbol, " Direction=", direction);
+               
+               // Try to find matching signal with daily active
+               bool foundMatch = false;
+               for(int s = 0; s < ArraySize(signals); s++)
+               {
+                  if(signals[s].symbol == symbol && 
+                     signals[s].direction == direction &&
+                     signals[s].isExecuted &&
+                     signals[s].mainTicket > 0)
+                  {
+                     // Verify main trade still exists
+                     if(position.SelectByTicket(signals[s].mainTicket))
+                     {
+                        // Ensure daily is active for this signal
+                        if(!signals[s].dailyActive && signals[s].isDaily)
+                        {
+                           signals[s].dailyActive = true;
+                           Print("✓ Reactivated daily re-entry for signal: ", signals[s].tradeId);
+                        }
+                        foundMatch = true;
+                        break;
+                     }
+                  }
+               }
+               
+               if(!foundMatch)
+               {
+                  Print("⚠️ Daily trade found but no matching active signal - Daily trade will be monitored");
+               }
+            }
+         }
+      }
+   }
+   
+   if(syncedMainCount > 0 || syncedDailyCount > 0)
+   {
+      Print("========================================");
+      Print("✓ Synced with existing positions:");
+      Print("  Main trades: ", syncedMainCount);
+      Print("  Daily trades: ", syncedDailyCount);
+      Print("========================================");
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -1389,6 +1584,30 @@ void ExecuteTrade(SignalData &signal)
       signal.isExecuted = true;
       signal.dailyActive = signal.isDaily;
       
+      // Store original TP and entry price for 50% modification rule
+      // Get actual position data to ensure accuracy
+      if(position.SelectByTicket(signal.mainTicket))
+      {
+         signal.originalEntryPrice = position.PriceOpen();
+         signal.originalTPPrice = position.TakeProfit();
+         signal.tradeOpenTime = (datetime)position.Time();
+         signal.tpModified = false;
+         
+         Print("Stored original values for TP modification rule:");
+         Print("  Entry Price: ", signal.originalEntryPrice);
+         Print("  Original TP: ", signal.originalTPPrice);
+         Print("  Trade Open Time: ", TimeToString(signal.tradeOpenTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+      }
+      else
+      {
+         // Fallback: use calculated values if position not found immediately
+         signal.originalEntryPrice = price;
+         signal.originalTPPrice = tpPrice;
+         signal.tradeOpenTime = TimeCurrent();
+         signal.tpModified = false;
+         Print("WARNING: Could not select position immediately, using calculated values");
+      }
+      
       Print("========================================");
       Print("✓✓✓ TRADE EXECUTED SUCCESSFULLY ✓✓✓");
       Print("Symbol: ", signal.symbol);
@@ -1694,17 +1913,18 @@ void ExecuteDailyTrade(SignalData &signal)
    // Calculate daily TP
    double dailyTPPrice = CalculateTPPrice(signal.symbol, signal.direction, currentPrice, signal.dailyTP);
    
-   // Cap daily TP to not exceed main TP
-   // For BUY: daily TP should be <= main TP (both are above entry price)
-   // For SELL: daily TP should be <= main TP (both are below entry price, so lower price = further from entry)
+   // Cap daily TP to not exceed main TP distance from entry
+   // For BUY: daily TP should be <= main TP (not higher than main TP)
+   // For SELL: daily TP should be >= main TP (not lower than main TP, which would be further from entry)
    if(signal.direction == "BUY")
    {
       if(dailyTPPrice > mainTPPrice) dailyTPPrice = mainTPPrice;
    }
    else  // SELL
    {
-      // For SELL: if daily TP is higher than main TP (closer to entry), cap it to main TP
-      if(dailyTPPrice > mainTPPrice) dailyTPPrice = mainTPPrice;
+      // For SELL: daily TP should be >= main TP (closer to entry or equal)
+      // Only cap if daily TP goes below main TP (further from entry than main TP)
+      if(dailyTPPrice < mainTPPrice) dailyTPPrice = mainTPPrice;
    }
    
    // Use daily lot if specified, otherwise use main lot
@@ -1750,7 +1970,8 @@ void MonitorAndUpdateDailyTrades()
          continue;  // Main trade closed - will be handled by CloseDailyTradesIfMainClosed()
       }
       
-      // Get current main TP
+      // Get current main TP (EA only READS main TP, never modifies it - manual changes are allowed)
+      // This ensures daily trades respect the current main TP, even if manually changed
       double mainTPPrice = position.TakeProfit();
       if(mainTPPrice <= 0) continue;  // No TP set on main trade
       
@@ -1778,27 +1999,53 @@ void MonitorAndUpdateDailyTrades()
                if(directionMatch)
                {
                   double dailyTPPrice = position.TakeProfit();
+                  double dailyEntryPrice = position.PriceOpen();
+                  double currentPrice = (signals[i].direction == "BUY") ? 
+                                       SymbolInfoDouble(signals[i].symbol, SYMBOL_BID) : 
+                                       SymbolInfoDouble(signals[i].symbol, SYMBOL_ASK);
                   bool needsUpdate = false;
                   
-                  // Check if daily TP exceeds main TP
+                  // Check if daily TP exceeds main TP distance from entry
+                  // For BUY: daily TP should be <= main TP (not higher than main TP)
+                  // For SELL: daily TP should be >= main TP (not lower than main TP, which would be further from entry)
                   if(signals[i].direction == "BUY")
                   {
                      if(dailyTPPrice > mainTPPrice)
                      {
-                        needsUpdate = true;
-                        dailyTPPrice = mainTPPrice;
-                        Print("⚠️ Daily TP (", dailyTPPrice, ") exceeds main TP (", mainTPPrice, ") - Updating daily trade ticket: ", ticket);
+                        // CRITICAL: Check if setting daily TP to main TP would cause immediate loss
+                        if(mainTPPrice >= currentPrice)
+                        {
+                           needsUpdate = true;
+                           dailyTPPrice = mainTPPrice;
+                           Print("⚠️ Daily TP (", dailyTPPrice, ") exceeds main TP (", mainTPPrice, ") - Updating daily trade ticket: ", ticket);
+                        }
+                        else
+                        {
+                           Print("⚠️ WARNING: Cannot update daily TP to main TP (", mainTPPrice, ") - it's below current price (", currentPrice, ")");
+                           Print("   This would cause immediate loss. Keeping daily TP unchanged: ", dailyTPPrice);
+                           Print("   Daily Entry: ", dailyEntryPrice, " | Current Price: ", currentPrice);
+                        }
                      }
                   }
                   else  // SELL
                   {
-                     // For SELL: daily TP should be <= main TP (both are below entry price)
-                     // If daily TP is greater than main TP (closer to entry), it exceeds main TP
-                     if(dailyTPPrice > mainTPPrice || dailyTPPrice == 0)
+                     // For SELL: daily TP should be >= main TP (closer to entry or equal)
+                     // Only cap if daily TP goes below main TP (further from entry than main TP) or is 0
+                     if(dailyTPPrice < mainTPPrice || dailyTPPrice == 0)
                      {
-                        needsUpdate = true;
-                        dailyTPPrice = mainTPPrice;
-                        Print("⚠️ Daily TP (", dailyTPPrice, ") exceeds main TP (", mainTPPrice, ") or is 0 - Updating daily trade ticket: ", ticket);
+                        // CRITICAL: Check if setting daily TP to main TP would cause immediate loss
+                        if(mainTPPrice <= currentPrice)
+                        {
+                           needsUpdate = true;
+                           dailyTPPrice = mainTPPrice;
+                           Print("⚠️ Daily TP (", dailyTPPrice, ") is below main TP (", mainTPPrice, ") or is 0 - Updating daily trade ticket: ", ticket);
+                        }
+                        else
+                        {
+                           Print("⚠️ WARNING: Cannot update daily TP to main TP (", mainTPPrice, ") - it's above current price (", currentPrice, ")");
+                           Print("   This would cause immediate loss. Keeping daily TP unchanged: ", dailyTPPrice);
+                           Print("   Daily Entry: ", dailyEntryPrice, " | Current Price: ", currentPrice);
+                        }
                      }
                   }
                   
@@ -1887,6 +2134,376 @@ void CloseDailyTradesIfMainClosed()
          {
             Print("✅ Closed ", closedCount, " daily trade(s) because main trade was closed");
             signals[i].dailyActive = false;  // Disable daily trades for this signal
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Monitor all daily trades (even those not linked to signals)     |
+//| This ensures daily trades are managed even after EA restart     |
+//+------------------------------------------------------------------+
+void MonitorAllDailyTrades()
+{
+   int totalPositions = PositionsTotal();
+   
+   // Find all daily trades
+   for(int p = 0; p < totalPositions; p++)
+   {
+      ulong dailyTicket = PositionGetTicket(p);
+      if(dailyTicket == 0) continue;
+      
+      if(!position.SelectByTicket(dailyTicket)) continue;
+      
+      // Check if this is a daily trade
+      if(position.Magic() == MagicNumber &&
+         StringFind(position.Comment(), "Forex Dynamic Daily") >= 0)
+      {
+         string dailySymbol = position.Symbol();
+         ENUM_POSITION_TYPE dailyType = position.PositionType();
+         double dailyTPPrice = position.TakeProfit();
+         
+         // Find the corresponding main trade (same symbol, same direction, not daily)
+         ulong mainTicket = 0;
+         double mainTPPrice = 0;
+         bool mainTradeFound = false;
+         
+         for(int m = 0; m < totalPositions; m++)
+         {
+            ulong ticket = PositionGetTicket(m);
+            if(ticket == 0 || ticket == dailyTicket) continue;
+            
+            if(position.SelectByTicket(ticket))
+            {
+               if(position.Magic() == MagicNumber &&
+                  position.Symbol() == dailySymbol &&
+                  position.PositionType() == dailyType &&
+                  StringFind(position.Comment(), "Forex Dynamic") >= 0 &&
+                  StringFind(position.Comment(), "Daily") < 0)
+               {
+                  // Found the main trade
+                  mainTicket = ticket;
+                  mainTPPrice = position.TakeProfit();
+                  mainTradeFound = true;
+                  break;
+               }
+            }
+         }
+         
+         if(!mainTradeFound)
+         {
+            // No main trade found - this daily trade is orphaned
+            // Don't close it automatically, but log it
+            static datetime lastOrphanLog = 0;
+            if(TimeCurrent() - lastOrphanLog > 3600)  // Log once per hour
+            {
+               Print("⚠️ Orphaned daily trade found: Ticket=", dailyTicket, " Symbol=", dailySymbol, " - No main trade found");
+               lastOrphanLog = TimeCurrent();
+            }
+            continue;
+         }
+         
+         if(mainTPPrice <= 0) continue;  // Main trade has no TP
+         
+         // Get current price to check if TP modification would cause loss
+         double currentPrice = (dailyType == POSITION_TYPE_BUY) ? 
+                              SymbolInfoDouble(dailySymbol, SYMBOL_BID) : 
+                              SymbolInfoDouble(dailySymbol, SYMBOL_ASK);
+         double dailyEntryPrice = position.PriceOpen();
+         
+         // Check if daily TP needs to be capped
+         bool needsUpdate = false;
+         double newDailyTP = dailyTPPrice;
+         
+         if(dailyType == POSITION_TYPE_BUY)
+         {
+            // For BUY: daily TP should be <= main TP
+            if(dailyTPPrice > mainTPPrice)
+            {
+               // CRITICAL: Check if setting daily TP to main TP would cause immediate loss
+               if(mainTPPrice >= currentPrice)
+               {
+                  needsUpdate = true;
+                  newDailyTP = mainTPPrice;
+               }
+               else
+               {
+                  Print("⚠️ WARNING: Cannot update orphaned daily TP to main TP (", mainTPPrice, ") - it's below current price (", currentPrice, ")");
+                  Print("   This would cause immediate loss. Keeping daily TP unchanged: ", dailyTPPrice);
+                  Print("   Daily Entry: ", dailyEntryPrice, " | Current Price: ", currentPrice);
+               }
+            }
+         }
+         else  // SELL
+         {
+            // For SELL: daily TP should be >= main TP (closer to entry or equal)
+            if(dailyTPPrice < mainTPPrice || dailyTPPrice == 0)
+            {
+               // CRITICAL: Check if setting daily TP to main TP would cause immediate loss
+               if(mainTPPrice <= currentPrice)
+               {
+                  needsUpdate = true;
+                  newDailyTP = mainTPPrice;
+               }
+               else
+               {
+                  Print("⚠️ WARNING: Cannot update orphaned daily TP to main TP (", mainTPPrice, ") - it's above current price (", currentPrice, ")");
+                  Print("   This would cause immediate loss. Keeping daily TP unchanged: ", dailyTPPrice);
+                  Print("   Daily Entry: ", dailyEntryPrice, " | Current Price: ", currentPrice);
+               }
+            }
+         }
+         
+         // Update daily TP if needed
+         if(needsUpdate)
+         {
+            // Re-select the daily position to get current SL
+            if(position.SelectByTicket(dailyTicket))
+            {
+               bool result = trade.PositionModify(dailyTicket, position.StopLoss(), newDailyTP);
+               if(result)
+               {
+                  Print("✅ Updated orphaned daily trade TP - Ticket: ", dailyTicket, " | Symbol: ", dailySymbol, 
+                        " | New TP: ", newDailyTP, " | Main TP: ", mainTPPrice);
+               }
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Check if current time is market open (00:00 broker server time)  |
+//+------------------------------------------------------------------+
+bool IsMarketOpen()
+{
+   datetime currentTime = TimeCurrent();
+   MqlDateTime dt;
+   TimeToStruct(currentTime, dt);
+   
+   // Market open is at 00:00:00 broker server time
+   // Check if we're at the start of a new trading day (00:00:00 to 00:00:59)
+   if(dt.hour == 0 && dt.min == 0 && dt.sec < 60)
+   {
+      return true;
+   }
+   
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate number of trading days since trade was opened         |
+//| Returns: 1 = Day 1 (opening day), 2 = Day 2, 3 = Day 3, etc.   |
+//+------------------------------------------------------------------+
+int GetTradingDaysSinceOpen(datetime tradeOpenTime)
+{
+   datetime currentTime = TimeCurrent();
+   MqlDateTime openDt, currentDt;
+   TimeToStruct(tradeOpenTime, openDt);
+   TimeToStruct(currentTime, currentDt);
+   
+   // Calculate difference in days
+   // If same day, return 1 (Day 1)
+   if(openDt.year == currentDt.year && 
+      openDt.mon == currentDt.mon && 
+      openDt.day == currentDt.day)
+   {
+      return 1;  // Still on opening day
+   }
+   
+   // Calculate days difference
+   datetime openDayStart = StringToTime(IntegerToString(openDt.year) + "." + 
+                                        IntegerToString(openDt.mon) + "." + 
+                                        IntegerToString(openDt.day) + " 00:00:00");
+   datetime currentDayStart = StringToTime(IntegerToString(currentDt.year) + "." + 
+                                           IntegerToString(currentDt.mon) + "." + 
+                                           IntegerToString(currentDt.day) + " 00:00:00");
+   
+   long secondsDiff = (long)(currentDayStart - openDayStart);
+   int daysDiff = (int)(secondsDiff / 86400);  // 86400 seconds per day
+   
+   return daysDiff + 1;  // +1 because Day 1 is the opening day
+}
+
+//+------------------------------------------------------------------+
+//| Get hour and minute from datetime (broker server time)          |
+//+------------------------------------------------------------------+
+int GetHour(datetime dt)
+{
+   MqlDateTime dtStruct;
+   TimeToStruct(dt, dtStruct);
+   return dtStruct.hour;
+}
+
+int GetMinute(datetime dt)
+{
+   MqlDateTime dtStruct;
+   TimeToStruct(dt, dtStruct);
+   return dtStruct.min;
+}
+
+//+------------------------------------------------------------------+
+//| Check and apply TP modification rules (50% rule at market open)  |
+//| Rule A: Trades opened 00:00-16:59 → Modify TP at Day 2 market open |
+//| Rule B: Trades opened 17:00-market close → Modify TP at Day 3 market open |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check and apply TP modification rules (50% rule at market open)  |
+//| Rule A: Trades opened 00:00-16:59 → Modify TP at Day 2 market open |
+//| Rule B: Trades opened 17:00-market close → Modify TP at Day 3 market open |
+//+------------------------------------------------------------------+
+void CheckTPModificationRules()
+{
+   // We check every tick, but only act if conditions are met and NOT yet modified.
+   // This handles cases where EA was offline at exactly 00:00.
+   
+   datetime currentTime = TimeCurrent();
+   
+   // Check all executed signals with open trades
+   for(int i = 0; i < ArraySize(signals); i++)
+   {
+      if(!signals[i].isExecuted) continue;
+      if(signals[i].mainTicket == 0) continue;
+      if(signals[i].tpModified) continue;  // Already modified, skip
+      if(signals[i].tradeOpenTime == 0) continue;  // No open time stored, skip
+      if(signals[i].originalTPPrice <= 0) continue;  // No original TP, skip
+      if(signals[i].originalEntryPrice <= 0) continue;  // No entry price, skip
+      
+      // Verify main trade is still open
+      if(!position.SelectByTicket(signals[i].mainTicket))
+      {
+         continue;  // Trade closed, skip
+      }
+      
+      // Get trade open time details
+      int openHour = GetHour(signals[i].tradeOpenTime);
+      
+      // Calculate trading days since open
+      int daysSinceOpen = GetTradingDaysSinceOpen(signals[i].tradeOpenTime);
+      
+      bool shouldModify = false;
+      string ruleApplied = "";
+      
+      // Rule A: Trades opened 00:00-16:59 → Modify at Day 2 market open (or first chance on Day 2+)
+      if(openHour >= 0 && openHour < 17)  // 00:00 to 16:59
+      {
+         if(daysSinceOpen >= 2)  // Day 2 or later
+         {
+            shouldModify = true;
+            ruleApplied = "Rule A (00:00-16:59 → Day 2+)";
+         }
+      }
+      // Rule B: Trades opened 17:00-market close → Modify at Day 3 market open (or first chance on Day 3+)
+      else if(openHour >= 17)  // 17:00 to market close (23:59)
+      {
+         if(daysSinceOpen >= 3)  // Day 3 or later
+         {
+            shouldModify = true;
+            ruleApplied = "Rule B (17:00-close → Day 3+)";
+         }
+      }
+      
+      if(shouldModify)
+      {
+         // Get current price to ensure TP modification doesn't cause immediate loss
+         double currentPrice = 0;
+         if(signals[i].direction == "BUY")
+         {
+            currentPrice = SymbolInfoDouble(signals[i].symbol, SYMBOL_BID);
+         }
+         else  // SELL
+         {
+            currentPrice = SymbolInfoDouble(signals[i].symbol, SYMBOL_ASK);
+         }
+         
+         // Calculate 50% of original TP distance
+         double originalTPDistance = 0;
+         if(signals[i].direction == "BUY")
+         {
+            originalTPDistance = signals[i].originalTPPrice - signals[i].originalEntryPrice;
+         }
+         else  // SELL
+         {
+            originalTPDistance = signals[i].originalEntryPrice - signals[i].originalTPPrice;
+         }
+         
+         double newTPDistance = originalTPDistance * 0.5;  // 50% of original
+         double newTPPrice = 0;
+         
+         if(signals[i].direction == "BUY")
+         {
+            newTPPrice = signals[i].originalEntryPrice + newTPDistance;
+            
+            // CRITICAL: Ensure new TP is not below current price (would cause immediate loss)
+            // If new TP would be below current price, use current price as minimum
+            if(newTPPrice < currentPrice)
+            {
+               // Only print this once or occasionally to avoid spam
+               static datetime lastWarnTime = 0;
+               if(currentTime - lastWarnTime > 60)
+               {
+                  Print("⚠️ WARNING: Calculated TP (", newTPPrice, ") is below current price (", currentPrice, ")");
+                  Print("   This would cause immediate loss. Skipping TP modification for now.");
+                  lastWarnTime = currentTime;
+               }
+               continue;  // Skip modification to prevent loss
+            }
+         }
+         else  // SELL
+         {
+            newTPPrice = signals[i].originalEntryPrice - newTPDistance;
+            
+            // CRITICAL: Ensure new TP is not above current price (would cause immediate loss)
+            // If new TP would be above current price, use current price as maximum
+            if(newTPPrice > currentPrice)
+            {
+               static datetime lastWarnTime = 0;
+               if(currentTime - lastWarnTime > 60)
+               {
+                  Print("⚠️ WARNING: Calculated TP (", newTPPrice, ") is above current price (", currentPrice, ")");
+                  Print("   This would cause immediate loss. Skipping TP modification for now.");
+                  lastWarnTime = currentTime;
+               }
+               continue;  // Skip modification to prevent loss
+            }
+         }
+         
+         // Normalize price
+         int digits = (int)SymbolInfoInteger(signals[i].symbol, SYMBOL_DIGITS);
+         newTPPrice = NormalizeDouble(newTPPrice, digits);
+         
+         Print("========================================");
+         Print(">>> APPLYING TP MODIFICATION <<<");
+         Print("Rule: ", ruleApplied);
+         Print("Symbol: ", signals[i].symbol);
+         Print("Direction: ", signals[i].direction);
+         Print("Ticket: ", signals[i].mainTicket);
+         Print("Days Since Open: ", daysSinceOpen);
+         Print("Current Price: ", currentPrice);
+         Print("Original Entry: ", signals[i].originalEntryPrice);
+         Print("Original TP: ", signals[i].originalTPPrice);
+         Print("Original TP Distance: ", originalTPDistance);
+         Print("New TP Distance (50%): ", newTPDistance);
+         Print("New TP Price: ", newTPPrice);
+         Print("========================================");
+         
+         // Modify TP
+         bool result = trade.PositionModify(signals[i].mainTicket, position.StopLoss(), newTPPrice);
+         
+         if(result)
+         {
+            signals[i].tpModified = true;  // Mark as modified to prevent re-modification
+            Print("✅ TP successfully modified to 50% of original distance");
+            Print("   TP will NOT be modified again");
+            
+            if(EnableAlerts)
+               Alert("TP Modified: ", signals[i].symbol, " ", signals[i].direction, " - TP set to 50%");
+         }
+         else
+         {
+            uint retcode = trade.ResultRetcode();
+            string retcodeDescription = trade.ResultRetcodeDescription();
+            Print("❌ Failed to modify TP - Retcode: ", retcode, " | ", retcodeDescription);
          }
       }
    }

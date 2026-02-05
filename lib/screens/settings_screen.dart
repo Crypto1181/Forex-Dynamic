@@ -79,16 +79,21 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Please enter server URL'),
+          content: const Row(
+            children: [
+              Icon(Icons.error_rounded, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Please enter server URL'),
+            ],
+          ),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
     }
 
-    // Fix common URL issues
     if (url.startsWith(':')) {
       url = url.substring(1).trim();
     }
@@ -105,10 +110,16 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (parsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Invalid server URL format. Please include https://'),
+          content: const Row(
+            children: [
+              Icon(Icons.error_rounded, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Invalid server URL format. Please include https://'),
+            ],
+          ),
           backgroundColor: Colors.red,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
@@ -127,14 +138,14 @@ class _SettingsScreenState extends State<SettingsScreen>
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 8),
+              Icon(Icons.check_circle_rounded, color: Colors.white),
+              SizedBox(width: 12),
               Text('Settings saved successfully'),
             ],
           ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
@@ -145,10 +156,16 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Please enter server URL first'),
+          content: const Row(
+            children: [
+              Icon(Icons.info_rounded, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Please enter server URL first'),
+            ],
+          ),
           backgroundColor: Colors.orange,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
@@ -240,42 +257,103 @@ class _SettingsScreenState extends State<SettingsScreen>
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        backgroundColor: Colors.grey[50],
-        appBar: AppBar(
-          title: const Text('Settings'),
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Colors.white,
-          elevation: 0,
+      return Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF667eea),
+              const Color(0xFF764ba2),
+            ],
+          ),
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        child: const Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(child: CircularProgressIndicator(color: Colors.white)),
+        ),
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: const Text(
-          'Settings',
-          style: TextStyle(fontWeight: FontWeight.bold),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF667eea),
+            const Color(0xFF764ba2),
+          ],
         ),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
       ),
-      body: FadeTransition(
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // Modern Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+                    ),
+                    child: const Icon(Icons.settings_rounded, color: Colors.white, size: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Settings',
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Remote Server Configuration',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Content
+            Expanded(
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFf8fafc),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(30),
+                    topRight: Radius.circular(30),
+                  ),
+                ),
+                child: FadeTransition(
         opacity: _fadeAnimation,
         child: SlideTransition(
           position: _slideAnimation,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
             children: [
               // Header Card
-              _buildAnimatedCard(
-                delay: 0.0,
-                child: Container(
-                  padding: const EdgeInsets.all(20),
+                        Container(
+                          padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
@@ -285,11 +363,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(24),
                     boxShadow: [
                       BoxShadow(
                         color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                        blurRadius: 15,
+                                blurRadius: 20,
                         offset: const Offset(0, 8),
                       ),
                     ],
@@ -297,18 +375,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(12),
+                                padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(16),
                         ),
                         child: const Icon(
-                          Icons.cloud_upload,
+                                  Icons.cloud_upload_rounded,
                           color: Colors.white,
-                          size: 28,
+                                  size: 32,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                              const SizedBox(width: 20),
                       const Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,88 +413,47 @@ class _SettingsScreenState extends State<SettingsScreen>
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                        const SizedBox(height: 24),
 
               // Server URL
-              _buildAnimatedCard(
-                delay: 0.1,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.link,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Server URL',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
+                        _buildModernInputCard(
+                          icon: Icons.link_rounded,
+                          label: 'Server URL',
+                          child: TextField(
                       controller: _serverUrlController,
                       decoration: InputDecoration(
                         hintText: 'https://forex-dynamic.onrender.com',
+                              prefixIcon: const Icon(Icons.language_rounded),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor: Colors.white,
-                        prefixIcon: const Icon(Icons.language),
+                              fillColor: Colors.grey[50],
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 16,
                         ),
                       ),
                       keyboardType: TextInputType.url,
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 16),
 
               // Connection Type
-              _buildAnimatedCard(
-                delay: 0.15,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.settings_ethernet,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Connection Type',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
+                        _buildModernInputCard(
+                          icon: Icons.settings_ethernet_rounded,
+                          label: 'Connection Type',
+                          child: DropdownButtonFormField<String>(
                       value: _connectionType,
                       decoration: InputDecoration(
+                              prefixIcon: const Icon(Icons.api_rounded),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor: Colors.white,
-                        prefixIcon: const Icon(Icons.api),
+                              fillColor: Colors.grey[50],
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 16,
@@ -427,7 +464,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           value: 'REST',
                           child: Row(
                             children: [
-                              Icon(Icons.http, size: 20),
+                                    Icon(Icons.http_rounded, size: 20),
                               SizedBox(width: 8),
                               Text('REST API'),
                             ],
@@ -437,7 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           value: 'WebSocket',
                           child: Row(
                             children: [
-                              Icon(Icons.sync, size: 20),
+                                    Icon(Icons.sync_rounded, size: 20),
                               SizedBox(width: 8),
                               Text('WebSocket'),
                             ],
@@ -447,7 +484,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                           value: 'TCP',
                           child: Row(
                             children: [
-                              Icon(Icons.cable, size: 20),
+                                    Icon(Icons.cable_rounded, size: 20),
                               SizedBox(width: 8),
                               Text('TCP Socket'),
                             ],
@@ -459,69 +496,45 @@ class _SettingsScreenState extends State<SettingsScreen>
                           setState(() => _connectionType = value);
                         }
                       },
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 16),
 
               // API Key
-              _buildAnimatedCard(
-                delay: 0.2,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.vpn_key,
-                          color: Theme.of(context).colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'API Key (Optional)',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
+                        _buildModernInputCard(
+                          icon: Icons.vpn_key_rounded,
+                          label: 'API Key (Optional)',
+                          child: TextField(
                       controller: _apiKeyController,
                       decoration: InputDecoration(
-                        hintText: 'Leave empty if no authentication',
+                              hintText: 'Leave empty for no authentication',
+                              prefixIcon: const Icon(Icons.lock_rounded),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide.none,
                         ),
                         filled: true,
-                        fillColor: Colors.white,
-                        prefixIcon: const Icon(Icons.lock),
+                              fillColor: Colors.grey[50],
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 16,
                         ),
                       ),
                       obscureText: true,
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 24),
 
               // Test Connection Result
               if (_testResult != null)
-                _buildAnimatedCard(
-                  delay: 0.25,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
                       color: _testResult!.contains('successful')
                           ? Colors.green.shade50
                           : Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: _testResult!.contains('successful')
                             ? Colors.green.shade200
@@ -530,17 +543,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                       ),
                     ),
                     child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
                           _testResult!.contains('successful')
-                              ? Icons.check_circle
-                              : Icons.error,
+                                      ? Icons.check_circle_rounded
+                                      : Icons.error_rounded,
                           color: _testResult!.contains('successful')
                               ? Colors.green.shade700
                               : Colors.red.shade700,
-                          size: 24,
+                                  size: 28,
                         ),
-                        const SizedBox(width: 12),
+                                const SizedBox(width: 16),
                         Expanded(
                           child: Text(
                             _testResult!,
@@ -548,24 +562,19 @@ class _SettingsScreenState extends State<SettingsScreen>
                               color: _testResult!.contains('successful')
                                   ? Colors.green.shade900
                                   : Colors.red.shade900,
-                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              if (_testResult != null) const SizedBox(height: 16),
 
               // Action Buttons
-              _buildAnimatedCard(
-                delay: 0.3,
-                child: Column(
+                        Column(
                   children: [
                     SizedBox(
                       width: double.infinity,
-                      height: 50,
+                              height: 56,
                       child: OutlinedButton.icon(
                         onPressed: _isTesting ? null : _testConnection,
                         icon: _isTesting
@@ -574,7 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                                 height: 20,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Icon(Icons.wifi_find),
+                                    : const Icon(Icons.wifi_find_rounded),
                         label: Text(_isTesting ? 'Testing...' : 'Test Connection'),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
@@ -582,7 +591,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                             width: 2,
                           ),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                       ),
@@ -590,10 +599,10 @@ class _SettingsScreenState extends State<SettingsScreen>
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      height: 56,
+                              height: 60,
                       child: ElevatedButton.icon(
                         onPressed: _saveSettings,
-                        icon: const Icon(Icons.save),
+                                icon: const Icon(Icons.save_rounded),
                         label: const Text(
                           'Save Settings',
                           style: TextStyle(
@@ -605,45 +614,37 @@ class _SettingsScreenState extends State<SettingsScreen>
                           backgroundColor: Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(16),
                           ),
-                          elevation: 2,
+                                  elevation: 4,
                         ),
                       ),
                     ),
                   ],
-                ),
               ),
               const SizedBox(height: 16),
             ],
           ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildAnimatedCard({
+  Widget _buildModernInputCard({
+    required IconData icon,
+    required String label,
     required Widget child,
-    double delay = 0.0,
   }) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: Duration(milliseconds: 400 + (delay * 200).toInt()),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) {
-        return Transform.translate(
-          offset: Offset(0, 20 * (1 - value)),
-          child: Opacity(
-            opacity: value,
-            child: child,
-          ),
-        );
-      },
-      child: Container(
+    return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.05),
@@ -652,7 +653,25 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
           ],
         ),
-        child: child,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: Theme.of(context).colorScheme.primary, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
       ),
     );
   }

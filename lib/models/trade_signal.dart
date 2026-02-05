@@ -14,6 +14,7 @@ class TradeSignal {
   final double? dailyLot; // Daily lot size if applicable
   final String accountName; // Name of the account/EA
   final String brand; // Trade brand identifier
+  final String entryType; // "TIME" or "PRICE"
   final String? tradeId; // Unique ID for the trade
   final DateTime receivedAt; // When the signal was received
   final bool isDraft; // Indicates if this is a saved draft (not yet sent)
@@ -34,6 +35,7 @@ class TradeSignal {
     this.dailyLot,
     required this.accountName,
     required this.brand,
+    this.entryType = 'TIME',
     this.tradeId,
     DateTime? receivedAt,
     this.isDraft = false,
@@ -44,7 +46,9 @@ class TradeSignal {
       symbol: json['symbol'] as String,
       direction: json['direction'] as String,
       entryTime: json['entryTime'] as String,
-      entryPrice: json['entryPrice'] != null ? (json['entryPrice'] as num).toDouble() : 0.0,
+      entryPrice: json['entryPrice'] != null
+          ? (json['entryPrice'] as num).toDouble()
+          : 0.0,
       tp: (json['tp'] as num).toDouble(),
       sl: (json['sl'] as num).toDouble(),
       tpCondition1: json['tpCondition1'] as String?,
@@ -52,10 +56,15 @@ class TradeSignal {
       newTP: json['newTP'] != null ? (json['newTP'] as num).toDouble() : null,
       lot: (json['lot'] as num).toDouble(),
       isDaily: json['isDaily'] as bool? ?? false,
-      dailyTP: json['dailyTP'] != null ? (json['dailyTP'] as num).toDouble() : null,
-      dailyLot: json['dailyLot'] != null ? (json['dailyLot'] as num).toDouble() : null,
+      dailyTP: json['dailyTP'] != null
+          ? (json['dailyTP'] as num).toDouble()
+          : null,
+      dailyLot: json['dailyLot'] != null
+          ? (json['dailyLot'] as num).toDouble()
+          : null,
       accountName: json['accountName'] as String? ?? '',
       brand: json['brand'] as String? ?? '',
+      entryType: json['entryType'] as String? ?? 'TIME',
       tradeId: json['tradeId'] as String?,
       receivedAt: json['receivedAt'] != null
           ? DateTime.parse(json['receivedAt'] as String)
@@ -81,6 +90,7 @@ class TradeSignal {
       if (dailyLot != null) 'dailyLot': dailyLot,
       'accountName': accountName,
       'brand': brand,
+      'entryType': entryType,
       if (tradeId != null) 'tradeId': tradeId,
       'receivedAt': receivedAt.toIso8601String(),
       'isDraft': isDraft,
@@ -103,6 +113,7 @@ class TradeSignal {
     double? dailyLot,
     String? accountName,
     String? brand,
+    String? entryType,
     String? tradeId,
     DateTime? receivedAt,
     bool? isDraft,
@@ -123,6 +134,7 @@ class TradeSignal {
       dailyLot: dailyLot ?? this.dailyLot,
       accountName: accountName ?? this.accountName,
       brand: brand ?? this.brand,
+      entryType: entryType ?? this.entryType,
       tradeId: tradeId ?? this.tradeId,
       receivedAt: receivedAt ?? this.receivedAt,
       isDraft: isDraft ?? this.isDraft,
@@ -143,4 +155,3 @@ class TradeSignal {
     return null;
   }
 }
-
