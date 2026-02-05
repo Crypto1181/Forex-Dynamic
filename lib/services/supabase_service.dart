@@ -1,5 +1,7 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 import '../models/trade_signal.dart';
+import 'supabase_initializer_server.dart'
+    if (dart.library.ui) 'supabase_initializer_flutter.dart';
 
 class SupabaseService {
   static const String _supabaseUrl = 'https://rffexsyqlwahiqiwndyd.supabase.co';
@@ -13,11 +15,7 @@ class SupabaseService {
     if (_initialized) return;
     
     try {
-      await Supabase.initialize(
-        url: _supabaseUrl,
-        anonKey: _supabaseAnonKey,
-      );
-      _client = Supabase.instance.client;
+      _client = await initializeSupabase(_supabaseUrl, _supabaseAnonKey);
       _initialized = true;
     } catch (e) {
       throw Exception('Failed to initialize Supabase: $e');
@@ -80,6 +78,7 @@ class SupabaseService {
       'tradeId': dbJson['trade_id'],
       'receivedAt': receivedAtStr,
       'isDraft': dbJson['is_draft'] ?? false,
+      'entryType': dbJson['entry_type'] ?? 'TIME',
     });
   }
 
@@ -104,6 +103,7 @@ class SupabaseService {
       'brand': signal.brand,
       'received_at': signal.receivedAt.toIso8601String(),
       'is_draft': signal.isDraft,
+      'entry_type': signal.entryType,
     };
   }
 

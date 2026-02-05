@@ -1,28 +1,22 @@
-# Use official Flutter SDK image
+# Use Flutter image for both build and runtime to support JIT execution
+# This avoids the high memory usage of 'dart compile exe'
 FROM ghcr.io/cirruslabs/flutter:stable
 
-# Set working directory
 WORKDIR /app
 
-# Accept Flutter licenses and verify installation
-RUN flutter doctor -v && flutter precache
+# Copy pubspec files first for better caching
+COPY pubspec.yaml pubspec.lock ./
 
-# Copy pubspec files
-COPY pubspec.yaml pubspec.lock* ./
-
-# Get dependencies using Flutter
+# Get dependencies
 RUN flutter pub get
 
-# Copy source code
+# Copy the rest of the application
 COPY . .
 
-# Get dependencies again (in case of changes)
-RUN flutter pub get
-
-# Expose port (Render will provide PORT env variable)
+# Expose port
 ENV PORT=8080
 EXPOSE 8080
 
-# Run the server using dart (Flutter includes Dart)
-CMD ["dart", "run", "bin/server.dart"]
-
+# Run the server using Dart JIT (Just-In-Time) compilation
+# This requires the Dart SDK (included in the image) but uses much less memory during build
+CMD ["dart", "bin/server.dart"]

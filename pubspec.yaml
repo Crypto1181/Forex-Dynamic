@@ -53,6 +53,7 @@ dependencies:
   
   # Supabase for cloud storage
   supabase_flutter: ^2.5.6
+  supabase: ^2.2.0
 
 dev_dependencies:
   flutter_test:

@@ -8,7 +8,8 @@ class SettingsService {
   // Get remote server URL
   Future<String?> getRemoteServerUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_serverUrlKey);
+    // Default to the Render server if not set
+    return prefs.getString(_serverUrlKey) ?? 'https://forex-dynamic.onrender.com';
   }
 
   // Set remote server URL

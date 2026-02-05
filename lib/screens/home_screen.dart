@@ -305,7 +305,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         index: _currentIndex,
         children: [
           _buildSignalsTab(),
-          _buildServerTab(),
           _buildSettingsTab(),
           _buildAccountsTab(),
         ],
@@ -338,14 +337,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 color: Theme.of(context).colorScheme.primary,
               ),
               label: 'Signals',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.dns, color: Colors.grey[600]),
-              selectedIcon: Icon(
-                Icons.dns,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              label: 'Server',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings, color: Colors.grey[600]),
@@ -439,21 +430,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           remoteServerUrl.startsWith('https://') ||
           remoteServerUrl.startsWith('wss://');
     } else {
-      if (!widget.serverManager.isRunning) {
-        setState(() => _isSendingSignals = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No remote server configured and local server is not running.\nConfigure a server in Settings or start the local server.',
-            ),
-            backgroundColor: Colors.orange,
+      setState(() => _isSendingSignals = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No remote server configured.\nPlease configure the server URL in Settings.',
           ),
-        );
-        return;
-      }
-      host = 'localhost';
-      port = widget.serverManager.port;
-      connectionType = widget.serverManager.connectionType;
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
     }
 
     final accounts = widget.accountService.accounts
@@ -498,8 +484,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             brand: account.brand,
             entryTime: DateFormat('yyyy-MM-dd HH:mm:ss').format(adjustedEntry),
             lot: signal.lot > 0 ? signal.lot : account.defaultLotSize,
-            dailyLot: signal.isDaily 
-                ? (signal.dailyLot != null && signal.dailyLot! > 0 ? signal.dailyLot : account.defaultDailyLot) 
+            dailyLot: signal.isDaily
+                ? (signal.dailyLot != null && signal.dailyLot! > 0
+                      ? signal.dailyLot
+                      : account.defaultDailyLot)
                 : null,
             tpCondition1: adjustedTP1,
             tpCondition2: adjustedTP2,

@@ -4,9 +4,9 @@ services:
     runtime: docker
     plan: free
     buildCommand: ""
-    startCommand: dart run bin/server.dart
+    # We rely on the Dockerfile's CMD
+    startCommand: ""
     envVars:
       - key: PORT
         value: 8080
     healthCheckPath: /
-

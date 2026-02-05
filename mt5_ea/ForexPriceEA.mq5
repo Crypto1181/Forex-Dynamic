@@ -48,6 +48,7 @@ struct PriceSignal
    
    // State tracking
    bool isGlobalTPHit;       // If true, stop everything
+   bool isActivated;         // If true, strategy has started (price hit entry)
    int lastTradeDay;         // Day of year of last trade
    double mainTPPrice;       // Calculated Price Level for Global TP
    bool isInitialized;       // Flag for init
@@ -133,6 +134,8 @@ void SyncWithExistingPositions()
                {
                   signals[j].lastTradeDay = DayOfYear(TimeCurrent());
                }
+               // If any trade exists, it must have been activated
+               signals[j].isActivated = true;
             }
          }
       }
@@ -162,6 +165,8 @@ void SyncWithExistingPositions()
                   {
                      signals[j].lastTradeDay = DayOfYear(TimeCurrent());
                   }
+                  // If any trade exists, it must have been activated
+                  signals[j].isActivated = true;
                }
             }
          }
@@ -190,7 +195,7 @@ void ProcessSignal(PriceSignal &signal)
          signal.mainTPPrice = signal.entryPrice - (signal.tp * adjustedPoint);
          
       signal.isInitialized = true;
-      Print("Signal ", signal.symbol, " Initialized. Main TP Level: ", signal.mainTPPrice);
+      Print("Signal ", signal.symbol, " Initialized. Main TP Level: ", signal.mainTPPrice, " Entry Price: ", signal.entryPrice);
    }
    
    // 2. Check if Global TP Hit
@@ -213,7 +218,31 @@ void ProcessSignal(PriceSignal &signal)
       return;
    }
    
-   // 3. Check Daily Entry Time
+   // 3. Check Activation (Price Entry)
+   if(!signal.isActivated)
+   {
+      // Check if price is near entry price (within 5 pips)
+      // or if we should just activate if it crosses?
+      // Simple logic: If price touches EntryPrice range (+/- 5 pips)
+      
+      double point = SymbolInfoDouble(signal.symbol, SYMBOL_POINT);
+      int digits = (int)SymbolInfoInteger(signal.symbol, SYMBOL_DIGITS);
+      double adjustedPoint = point;
+      if(digits == 3 || digits == 5) adjustedPoint *= 10;
+      
+      double dist = MathAbs(currentPrice - signal.entryPrice);
+      if(dist <= 50 * point) // 5 pips (assuming 50 points for 5-digit)
+      {
+         signal.isActivated = true;
+         Print("Signal ", signal.symbol, " ACTIVATED at price ", currentPrice);
+      }
+      else
+      {
+         return; // Not yet activated, wait
+      }
+   }
+   
+   // 4. Check Daily Entry Time
    datetime now = TimeCurrent();
    MqlDateTime dt;
    TimeToStruct(now, dt);
@@ -374,6 +403,7 @@ void UpdateOrAddSignal(string json)
    signals[size].entryType = entryType;
    
    signals[size].isGlobalTPHit = false;
+   signals[size].isActivated = false;
    signals[size].lastTradeDay = -1;
    signals[size].isInitialized = false;
    
