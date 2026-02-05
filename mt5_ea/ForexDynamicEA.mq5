@@ -275,6 +275,15 @@ void PollSignals()
    if(res == -1)
    {
       int error = GetLastError();
+      
+      if(error == 4014)
+      {
+         lastError = "WebRequest: URL not allowed. Add '" + ServerURL + "' to allowed URLs in Tools->Options->Expert Advisors";
+         Print("ERROR 4014: ", lastError);
+         if(EnableAlerts) Alert("EA Error: ", lastError);
+         return;
+      }
+      
       if(error == 4060)
       {
          lastError = "WebRequest: Add 'https://forex-dynamic.onrender.com' to allowed URLs in Tools->Options->Expert Advisors";

@@ -316,7 +316,15 @@ void PollSignals()
    
    if(res == -1)
    {
-      Print("WebRequest failed: ", GetLastError());
+      int error = GetLastError();
+      Print("WebRequest failed: ", error);
+      
+      if(error == 4014)
+      {
+         Print("ERROR 4014: URL not allowed. Please go to Tools -> Options -> Expert Advisors and add '", ServerURL, "' to the allowed WebRequest URLs list.");
+         if(EnableAlerts) Alert("EA Error: WebRequest URL not allowed! Check Journal for details.");
+      }
+      
       return;
    }
    
