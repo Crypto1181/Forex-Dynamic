@@ -71,8 +71,94 @@ int OnInit()
    ArrayResize(signals, 0);
    lastPollTime = 0;
    
+   // Get current account name for logging
+   string currentAccountName = account.Name();
+   Print("========================================");
    Print("Forex Price Entry EA initialized");
+   Print("========================================");
+   Print("Current MT5 Account: ", currentAccountName);
    Print("Magic Number: ", MagicNumber);
+   Print("Server URL: ", ServerURL);
+   Print("Poll interval: ", PollIntervalSeconds, " seconds");
+   Print("Signal Timezone: ", SignalTimeZone);
+   
+   // CRITICAL: Check if AutoTrading is enabled
+   if(!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED))
+   {
+      string error = "WARNING: AutoTrading is DISABLED in MT5! Enable it in Tools->Options->Expert Advisors->Allow automated trading";
+      Print("WARNING: ", error);
+      Print("EA will continue but trades will NOT execute until AutoTrading is enabled");
+      if(EnableAlerts) Alert("EA Warning: ", error);
+   }
+   else
+   {
+      Print("✓ AutoTrading: ENABLED");
+   }
+   
+   // Check if trading is allowed on this account
+   if(!account.TradeAllowed())
+   {
+      string error = "WARNING: Trading is NOT ALLOWED on this account!";
+      Print("WARNING: ", error);
+      Print("EA will continue but trades will NOT execute until trading is allowed");
+      if(EnableAlerts) Alert("EA Warning: ", error);
+   }
+   else
+   {
+      Print("✓ Trading: ALLOWED");
+   }
+   
+   // Check account balance
+   double balance = account.Balance();
+   double equity = account.Equity();
+   Print("Account Balance: ", balance, " | Equity: ", equity);
+   
+   // Check if account is demo
+   if(account.TradeMode() == ACCOUNT_TRADE_MODE_DEMO)
+      Print("Account Type: DEMO");
+   else
+      Print("Account Type: REAL");
+      
+   // Display MT5 server timezone info
+   MqlDateTime serverDt;
+   TimeToStruct(TimeCurrent(), serverDt);
+   datetime serverGMT = TimeGMT();
+   int serverOffsetHours = (int)((TimeCurrent() - serverGMT) / 3600);
+   Print("MT5 Server Timezone: GMT", (serverOffsetHours >= 0 ? "+" : ""), serverOffsetHours);
+   Print("Current MT5 Server Time: ", TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES));
+   Print("Current GMT Time: ", TimeToString(serverGMT, TIME_DATE|TIME_MINUTES));
+   Print("--- Signal Matching: EA will process signals where signal's accountName and brand match configured values ---");
+   
+   // Display configured accounts
+   int accountCount = 0;
+   if(Account1Name != "" && Channel1Name != "")
+   {
+      Print("Configured Account 1: Signal Account='", Account1Name, "' | Signal Channel='", Channel1Name, "'");
+      accountCount++;
+   }
+   if(Account2Name != "" && Channel2Name != "")
+   {
+      Print("Configured Account 2: Signal Account='", Account2Name, "' | Signal Channel='", Channel2Name, "'");
+      accountCount++;
+   }
+   
+   if(accountCount == 0)
+   {
+      Print("========================================");
+      Print("NOTICE: No accounts configured.");
+      Print("        EA will run in 'Promiscuous Mode' and accept ALL signals.");
+      Print("        To filter signals, configure Account/Channel names in inputs.");
+      Print("========================================");
+   }
+   else
+   {
+      Print("✓ Account configuration: ", accountCount, " account(s) configured");
+   }
+   
+   Print("========================================");
+   
+   if(EnableAlerts)
+      Alert("Forex Price Entry EA started");
    
    return(INIT_SUCCEEDED);
 }
@@ -95,9 +181,19 @@ void OnTick()
    // Poll for signals
    if(currentTime - lastPollTime >= PollIntervalSeconds)
    {
+      Print("========================================");
+      Print("=== POLLING FOR SIGNALS ===");
+      Print("Current Time: ", TimeToString(currentTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+      Print("Signals in queue BEFORE poll: ", ArraySize(signals));
+      
       PollSignals();
+      
+      Print("Signals in queue AFTER poll: ", ArraySize(signals));
+      
       SyncWithExistingPositions(); // Sync state with open trades
       lastPollTime = currentTime;
+      
+      Print("========================================");
    }
    
    // Process each active signal
@@ -306,29 +402,55 @@ void OpenDailyTrade(PriceSignal &signal)
 //+------------------------------------------------------------------+
 void PollSignals()
 {
+   datetime pollTime = TimeCurrent();
+   Print("========================================");
+   Print("=== POLLING SERVER FOR SIGNALS ===");
+   Print("Server URL: ", ServerURL);
+   Print("Poll Time (MT5 Server): ", TimeToString(pollTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   Print("Poll Time (GMT): ", TimeToString(TimeGMT(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   Print("Poll Time (Local PC): ", TimeToString(TimeLocal(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   
    char data[];
    char result[];
    string headers;
-   int timeout = 5000;
+   
+   int timeout = 5000; // 5 seconds
    
    ResetLastError();
+   
    int res = WebRequest("GET", ServerURL, "", timeout, data, result, headers);
    
    if(res == -1)
    {
       int error = GetLastError();
-      Print("WebRequest failed: ", error);
       
       if(error == 4014)
       {
-         Print("ERROR 4014: URL not allowed. Please go to Tools -> Options -> Expert Advisors and add '", ServerURL, "' to the allowed WebRequest URLs list.");
-         if(EnableAlerts) Alert("EA Error: WebRequest URL not allowed! Check Journal for details.");
+         lastError = "WebRequest: URL not allowed. Add '" + ServerURL + "' to allowed URLs in Tools->Options->Expert Advisors";
+         Print("ERROR 4014: ", lastError);
+         if(EnableAlerts) Alert("EA Error: ", lastError);
+         return;
       }
       
+      if(error == 4060)
+      {
+         lastError = "WebRequest: Add 'https://forex-dynamic.onrender.com' to allowed URLs in Tools->Options->Expert Advisors";
+         Print("ERROR: ", lastError);
+         if(EnableAlerts) Alert("EA Error: ", lastError);
+         return;
+      }
+      lastError = "WebRequest failed: " + IntegerToString(error);
+      Print("ERROR: ", lastError);
       return;
    }
    
+   // Parse JSON response
    string jsonResponse = CharArrayToString(result);
+   Print("Server response received, length: ", StringLen(jsonResponse));
+   if(StringLen(jsonResponse) > 0)
+   {
+      Print("First 300 chars: ", StringSubstr(jsonResponse, 0, 300));
+   }
    ParseSignalsJSON(jsonResponse);
 }
 
@@ -337,27 +459,82 @@ void PollSignals()
 //+------------------------------------------------------------------+
 void ParseSignalsJSON(string json)
 {
-   // Basic parsing logic similar to ForexDynamicEA but strictly for PRICE signals
    int signalsStart = StringFind(json, "\"signals\":[");
    if(signalsStart == -1) return;
    
-   string signalsArray = StringSubstr(json, signalsStart + 10); // Skip "signals":[
-   // Note: Robust JSON parsing would be better, but we'll use simple extraction for now
-   // ... (Simplified for brevity, assuming standard format)
-   
-   // Iterate and parse individual signals
-   int pos = 0;
-   while(true)
+   // Find end of signals array
+   int arrayDepth = 0;
+   int signalsEnd = -1;
+   for(int i = signalsStart + 10; i < StringLen(json); i++)
    {
-      int start = StringFind(json, "{", pos);
+      ushort c = StringGetCharacter(json, i);
+      if(c == '[') arrayDepth++;
+      if(c == ']')
+      {
+         if(arrayDepth == 0)
+         {
+            signalsEnd = i;
+            break;
+         }
+         arrayDepth--;
+      }
+   }
+   
+   if(signalsEnd == -1) return;
+   
+   string signalsArray = StringSubstr(json, signalsStart + 10, signalsEnd - (signalsStart + 10));
+   
+   // Track IDs found on server for synchronization
+   string serverTradeIds[];
+   int serverIdCount = 0;
+   
+   int pos = 0;
+   while(pos < StringLen(signalsArray))
+   {
+      int start = StringFind(signalsArray, "{", pos);
       if(start == -1) break;
-      int end = FindMatchingBrace(json, start);
+      
+      int end = FindMatchingBrace(signalsArray, start);
       if(end == -1) break;
       
-      string signalJson = StringSubstr(json, start, end - start + 1);
+      string signalJson = StringSubstr(signalsArray, start, end - start + 1);
+      
+      // Extract ID to track existence
+      string currentId = ExtractJSONValue(signalJson, "tradeId");
+      if(currentId != "")
+      {
+         ArrayResize(serverTradeIds, serverIdCount + 1);
+         serverTradeIds[serverIdCount] = currentId;
+         serverIdCount++;
+      }
+      
       UpdateOrAddSignal(signalJson);
       
       pos = end + 1;
+   }
+   
+   // SYNC: Remove local signals that are no longer on the server
+   // Only sync if we successfully parsed something or got explicit empty list
+   if(serverIdCount > 0 || StringLen(signalsArray) < 50) 
+   {
+      for(int i = ArraySize(signals) - 1; i >= 0; i--)
+      {
+         bool found = false;
+         for(int k = 0; k < serverIdCount; k++)
+         {
+            if(signals[i].tradeId == serverTradeIds[k])
+            {
+               found = true;
+               break;
+            }
+         }
+         
+         if(!found)
+         {
+            Print("❌ Signal deleted from server, removing from EA: ", signals[i].symbol, " (ID: ", signals[i].tradeId, ")");
+            RemoveSignalAt(i);
+         }
+      }
    }
 }
 
@@ -379,7 +556,23 @@ int FindMatchingBrace(string str, int startPos)
 void UpdateOrAddSignal(string json)
 {
    string entryType = ExtractJSONValue(json, "entryType");
-   if(entryType != "PRICE") return; // Ignore non-Price signals
+   double ePrice = StringToDouble(ExtractJSONValue(json, "entryPrice"));
+
+   // Relaxed Check: Accept if type is PRICE OR if it has a valid entry price (fallback)
+   if(entryType != "PRICE") 
+   {
+      if(ePrice > 0.00001)
+      {
+         // It has a price, so we'll treat it as a PRICE signal even if type is missing/wrong
+         // Print("⚠️ NOTICE: Signal entryType is '", entryType, "' but has Entry Price ", ePrice, ". Processing as PRICE signal.");
+      }
+      else
+      {
+         // It's likely a Time signal (Price=0) or invalid. Ignore it.
+         // Print("Ignoring non-PRICE signal (Price=0, Type=", entryType, "): ", ExtractJSONValue(json, "symbol"));
+         return; 
+      }
+   }
    
    string tradeId = ExtractJSONValue(json, "tradeId");
    
@@ -396,7 +589,7 @@ void UpdateOrAddSignal(string json)
    signals[size].tradeId = tradeId;
    signals[size].symbol = ExtractJSONValue(json, "symbol");
    signals[size].direction = ExtractJSONValue(json, "direction");
-   signals[size].entryPrice = StringToDouble(ExtractJSONValue(json, "entryPrice"));
+   signals[size].entryPrice = ePrice;
    signals[size].tp = StringToDouble(ExtractJSONValue(json, "tp")); // Main TP
    signals[size].sl = StringToDouble(ExtractJSONValue(json, "sl"));
    signals[size].dailyTP = StringToDouble(ExtractJSONValue(json, "dailyTP"));
@@ -408,14 +601,28 @@ void UpdateOrAddSignal(string json)
    
    signals[size].accountName = ExtractJSONValue(json, "accountName");
    signals[size].brand = ExtractJSONValue(json, "brand");
-   signals[size].entryType = entryType;
+   signals[size].entryType = (entryType == "" ? "PRICE (Inferred)" : entryType);
    
    signals[size].isGlobalTPHit = false;
    signals[size].isActivated = false;
    signals[size].lastTradeDay = -1;
    signals[size].isInitialized = false;
    
-   Print("Added new PRICE signal: ", signals[size].symbol);
+   // Check if signal matches configured account and channel
+   if(!IsSignalForThisAccount(signals[size]))
+   {
+      ArrayResize(signals, size); // Remove the added signal
+      return;
+   }
+   
+   Print("✓✓✓ Added new PRICE signal: ", signals[size].symbol, " ", signals[size].direction, " @ ", signals[size].entryPrice);
+   Print("  TP: ", signals[size].tp, " | SL: ", signals[size].sl);
+   Print("  Account: ", signals[size].accountName, " | Channel: ", signals[size].brand);
+   Print("  Trade ID: ", signals[size].tradeId);
+   if(entryType != "PRICE") Print("  Note: Signal accepted based on Entry Price (Type='", entryType, "')");
+   
+   if(EnableAlerts)
+      Alert("NEW PRICE SIGNAL: ", signals[size].symbol, " ", signals[size].direction, " @ ", signals[size].entryPrice);
 }
 
 string ExtractJSONValue(string json, string key)
@@ -456,4 +663,112 @@ int DayOfYear(datetime dt)
    MqlDateTime mdt;
    TimeToStruct(dt, mdt);
    return mdt.day_of_year;
+}
+
+//+------------------------------------------------------------------+
+//| Remove signal at index                                           |
+//+------------------------------------------------------------------+
+void RemoveSignalAt(int index)
+{
+   int size = ArraySize(signals);
+   if(index >= 0 && index < size)
+   {
+      // Shift elements down
+      for(int i = index; i < size - 1; i++)
+      {
+         signals[i] = signals[i+1];
+      }
+      // Resize
+      ArrayResize(signals, size - 1);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Normalize string for comparison (trim and convert to uppercase)  |
+//+------------------------------------------------------------------+
+string NormalizeString(string str)
+{
+   // Remove leading/trailing whitespace
+   string normalized = str;
+   int len = StringLen(normalized);
+   int start = 0;
+   int end = len - 1;
+   
+   // Find start (skip leading spaces)
+   while(start < len && StringGetCharacter(normalized, start) == ' ')
+      start++;
+   
+   // Find end (skip trailing spaces)
+   while(end >= start && StringGetCharacter(normalized, end) == ' ')
+      end--;
+   
+   if(start > end)
+      return "";
+   
+   normalized = StringSubstr(normalized, start, end - start + 1);
+   
+   // Convert to uppercase for case-insensitive comparison
+   StringToUpper(normalized);
+   
+   return normalized;
+}
+
+//+------------------------------------------------------------------+
+//| Check if signal matches configured account and channel           |
+//+------------------------------------------------------------------+
+bool IsSignalForThisAccount(PriceSignal &signal)
+{
+   // Get current MT5 account name for logging
+   string currentAccountName = account.Name();
+   
+   // Normalize signal values (case-insensitive, trimmed)
+   string signalAccount = NormalizeString(signal.accountName);
+   string signalBrand = NormalizeString(signal.brand);
+   
+   // Check each configured account
+   // The EA processes signals based on signal's accountName and brand matching the configured values
+   
+   // If NO accounts are configured, accept ALL signals (Promiscuous Mode)
+   if(Account1Name == "" && Channel1Name == "" && Account2Name == "" && Channel2Name == "")
+   {
+      // Print("✓ Signal ACCEPTED (Promiscuous Mode) - No filters configured");
+      return true;
+   }
+
+   // Account 1
+   if(Account1Name != "" && Channel1Name != "")
+   {
+      // Normalize configured values
+      string configAccount1 = NormalizeString(Account1Name);
+      string configChannel1 = NormalizeString(Channel1Name);
+      
+      // Match: Signal's accountName matches Account1Name AND signal's channel matches Channel1Name (case-insensitive)
+      if(signalAccount == configAccount1 && signalBrand == configChannel1)
+      {
+         Print("✓✓✓ Signal MATCHED Account 1: ", Account1Name, " | Channel: ", Channel1Name, " | Current MT5: ", currentAccountName);
+         return true;
+      }
+   }
+   
+   // Account 2
+   if(Account2Name != "" && Channel2Name != "")
+   {
+      string configAccount2 = NormalizeString(Account2Name);
+      string configChannel2 = NormalizeString(Channel2Name);
+      
+      if(signalAccount == configAccount2 && signalBrand == configChannel2)
+      {
+         Print("✓✓✓ Signal MATCHED Account 2: ", Account2Name, " | Channel: ", Channel2Name, " | Current MT5: ", currentAccountName);
+         return true;
+      }
+   }
+   
+   // Signal doesn't match any configured account
+   Print("✗ Signal REJECTED - Signal Account: '", signal.accountName, "' | Signal Channel: '", signal.brand, "'");
+   Print("  Configured Account1: '", Account1Name, "' | Channel1: '", Channel1Name, "'");
+   Print("  Normalized comparison - Signal: Account='", signalAccount, "' Brand='", signalBrand, "'");
+   if(Account1Name != "")
+      Print("  Normalized comparison - Config: Account='", NormalizeString(Account1Name), "' Brand='", NormalizeString(Channel1Name), "'");
+   Print("  Current MT5 Account: ", currentAccountName);
+   return false;
 }

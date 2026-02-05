@@ -9,7 +9,8 @@ import 'supabase_service.dart';
 
 class SignalService {
   final List<TradeSignal> _signals = [];
-  final StreamController<TradeSignal> _signalController = StreamController<TradeSignal>.broadcast();
+  final StreamController<TradeSignal> _signalController =
+      StreamController<TradeSignal>.broadcast();
   final Uuid _uuid = const Uuid();
   static const String _signalsKey = 'saved_trade_signals';
 
@@ -19,16 +20,37 @@ class SignalService {
   // Get all signals
   List<TradeSignal> get signals => List.unmodifiable(_signals);
 
-  // Initialize and load saved signals (only in Flutter environment)
+  // Initialize and load saved signals
   Future<void> initialize() async {
     // Initialize Supabase first
     try {
       await SupabaseService.initialize();
     } catch (e) {
       print('Warning: Supabase initialization failed: $e');
-      // Continue with local storage fallback
     }
-    await loadSignals();
+
+    // Try to load from Supabase first (Server relies on this)
+    bool loadedFromSupabase = false;
+    if (SupabaseService.isInitialized) {
+      try {
+        final signals = await SupabaseService.fetchSignals();
+        if (signals.isNotEmpty) {
+          _signals.clear();
+          _signals.addAll(signals);
+          loadedFromSupabase = true;
+          print('Loaded ${_signals.length} signals from Supabase');
+        }
+      } catch (e) {
+        print('Warning: Failed to load from Supabase: $e');
+      }
+    }
+
+    // If not loaded from Supabase (or we want to merge/fallback), load from local storage
+    // On Server, loadSignals() is a stub (does nothing), so this is fine.
+    // On App, if offline, this loads from cache.
+    if (!loadedFromSupabase) {
+      await loadSignals();
+    }
   }
 
   // Load signals from storage (only works in Flutter)
@@ -39,7 +61,9 @@ class SignalService {
         final List<dynamic> decoded = json.decode(signalsJson);
         _signals.clear();
         _signals.addAll(
-          decoded.map((json) => TradeSignal.fromJson(json as Map<String, dynamic>))
+          decoded.map(
+            (json) => TradeSignal.fromJson(json as Map<String, dynamic>),
+          ),
         );
         // Sort by receivedAt descending (newest first)
         _signals.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
@@ -54,7 +78,7 @@ class SignalService {
   Future<void> _saveSignals() async {
     try {
       final signalsJson = json.encode(
-        _signals.map((signal) => signal.toJson()).toList()
+        _signals.map((signal) => signal.toJson()).toList(),
       );
       await saveSignals(_signalsKey, signalsJson);
     } catch (e) {
@@ -112,38 +136,33 @@ class SignalService {
     try {
       // Parse the trade signal
       final signal = TradeSignal.fromJson(jsonData);
-      
+
       // Validate the signal
       final validationError = signal.validate();
       if (validationError != null) {
         return ApiResponse.error(validationError, code: 'VALIDATION_ERROR');
       }
 
-      // Generate a unique trade ID
-      final tradeId = _uuid.v4();
-      final signalWithId = TradeSignal(
-        symbol: signal.symbol,
-        direction: signal.direction,
-        entryTime: signal.entryTime,
-        entryPrice: signal.entryPrice,
-        tp: signal.tp,
-        sl: signal.sl,
-        tpCondition1: signal.tpCondition1,
-        tpCondition2: signal.tpCondition2,
-        newTP: signal.newTP,
-        lot: signal.lot,
-        isDaily: signal.isDaily,
-        dailyTP: signal.dailyTP,
-        dailyLot: signal.dailyLot,
-        accountName: signal.accountName,
-        brand: signal.brand,
-        tradeId: tradeId,
-        receivedAt: signal.receivedAt,
-        isDraft: false,
-      );
+      // Use existing ID if available, otherwise generate new one
+      final tradeId = signal.tradeId != null && signal.tradeId!.isNotEmpty
+          ? signal.tradeId!
+          : _uuid.v4();
 
-      // Add to list
-      _signals.insert(0, signalWithId); // Add to beginning for newest first
+      final signalWithId = signal.copyWith(tradeId: tradeId, isDraft: false);
+
+      // Check if signal with this ID already exists
+      final existingIndex = _signals.indexWhere((s) => s.tradeId == tradeId);
+
+      if (existingIndex != -1) {
+        // Update existing signal
+        _signals[existingIndex] = signalWithId;
+        // Move to top to show it's the latest action
+        _signals.removeAt(existingIndex);
+        _signals.insert(0, signalWithId);
+      } else {
+        // Add to list
+        _signals.insert(0, signalWithId); // Add to beginning for newest first
+      }
 
       // Emit to stream
       _signalController.add(signalWithId);
@@ -155,7 +174,10 @@ class SignalService {
 
       return ApiResponse.success(tradeId: tradeId);
     } catch (e) {
-      return ApiResponse.error('Failed to process signal: ${e.toString()}', code: 'PROCESSING_ERROR');
+      return ApiResponse.error(
+        'Failed to process signal: ${e.toString()}',
+        code: 'PROCESSING_ERROR',
+      );
     }
   }
 
@@ -217,4 +239,3 @@ class SignalService {
     _signalController.close();
   }
 }
-

@@ -363,6 +363,10 @@ void ParseSignalsJSON(string json)
    string signalsArray = StringSubstr(json, signalsStart + 1, signalsEnd - signalsStart - 1);
    Print("Signals array extracted, length: ", StringLen(signalsArray));
    
+   // Track IDs found on server for synchronization
+   string serverTradeIds[];
+   int serverIdCount = 0;
+   
    // Parse each signal
    int signalCount = 0;
    int pos = 0;
@@ -375,6 +379,16 @@ void ParseSignalsJSON(string json)
       if(signalEnd == -1) break;
       
       string signalJson = StringSubstr(signalsArray, signalStart, signalEnd - signalStart + 1);
+      
+      // Extract ID to track existence
+      string currentId = ExtractJSONValue(signalJson, "tradeId");
+      if(currentId != "")
+      {
+         ArrayResize(serverTradeIds, serverIdCount + 1);
+         serverTradeIds[serverIdCount] = currentId;
+         serverIdCount++;
+      }
+      
       Print("Parsing signal ", signalCount + 1, ": ", StringSubstr(signalJson, 0, 100), "...");
       ParseSignal(signalJson);
       signalCount++;
@@ -383,6 +397,29 @@ void ParseSignalsJSON(string json)
    }
    
    Print("Parsed ", signalCount, " signal(s) from server");
+   
+   // SYNC: Remove local signals that are no longer on the server
+   if(signalCount > 0 || StringFind(json, "\"signals\":[]") >= 0) // Only sync if we successfully parsed something or got explicit empty list
+   {
+      for(int i = ArraySize(signals) - 1; i >= 0; i--)
+      {
+         bool found = false;
+         for(int k = 0; k < serverIdCount; k++)
+         {
+            if(signals[i].tradeId == serverTradeIds[k])
+            {
+               found = true;
+               break;
+            }
+         }
+         
+         if(!found)
+         {
+            Print("❌ Signal deleted from server, removing from EA: ", signals[i].symbol, " (ID: ", signals[i].tradeId, ")");
+            RemoveSignalAt(i);
+         }
+      }
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -568,6 +605,23 @@ void ParseSignal(string signalJson)
       {
          Print("🚀 Entry time has passed - will attempt execution on next tick");
       }
+   }
+}
+//+------------------------------------------------------------------+
+//| Remove signal at index                                           |
+//+------------------------------------------------------------------+
+void RemoveSignalAt(int index)
+{
+   int size = ArraySize(signals);
+   if(index >= 0 && index < size)
+   {
+      // Shift elements down
+      for(int i = index; i < size - 1; i++)
+      {
+         signals[i] = signals[i+1];
+      }
+      // Resize
+      ArrayResize(signals, size - 1);
    }
 }
 
